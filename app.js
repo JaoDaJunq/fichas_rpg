@@ -219,6 +219,216 @@
 
   function closeModal() { modalRoot.innerHTML = ''; }
 
+  const JSON_SCHEMA = 'fichas-daemon-character';
+  const JSON_VERSION = 1;
+
+  function cloneJson(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function portableCharacter(s) {
+    normalizeSheet(s);
+    return {
+      name: s.name || '',
+      ownerName: s.ownerName || '',
+      title: s.title || '',
+      race: s.race || '',
+      sect: s.sect || '',
+      kit: s.kit || '',
+      level: s.level || '',
+      fatalism: s.fatalism || '',
+      epicScale: s.epicScale || '',
+      concept: s.concept || '',
+      age: s.age || '',
+      profession: s.profession || '',
+      attributes: cloneJson(s.attributes || {}),
+      skills: cloneJson(s.skills || []).map(sk => ({
+        catalogId: sk.catalogId || '',
+        category: sk.category || '',
+        name: sk.name || 'Perícia',
+        baseValue: Number(sk.baseValue) || 0,
+        spent: Number(sk.spent) || 0,
+        value: Number(sk.value) || 0,
+        combat: !!sk.combat
+      })),
+      creation: cloneJson(s.creation || {}),
+      reserves: cloneJson(s.reserves || {}),
+      combat: cloneJson(s.combat || {}),
+      magic: cloneJson(s.magic || []),
+      inventory: cloneJson(s.inventory || []),
+      upgrades: cloneJson(s.upgrades || []),
+      powers: cloneJson(s.powers || []),
+      weaknesses: cloneJson(s.weaknesses || []),
+      notes: s.notes || ''
+    };
+  }
+
+  function exportPayload(s) {
+    return {
+      schema: JSON_SCHEMA,
+      version: JSON_VERSION,
+      exportedAt: new Date().toISOString(),
+      character: portableCharacter(s)
+    };
+  }
+
+  function slugFile(value = 'personagem') {
+    return String(value || 'personagem')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'personagem';
+  }
+
+  function downloadText(filename, text, type = 'application/json;charset=utf-8') {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportSheetJson() {
+    const s = sheet();
+    if (!s) return;
+    const payload = exportPayload(s);
+    downloadText(`ficha-${slugFile(s.name)}.json`, JSON.stringify(payload, null, 2));
+    toast('JSON da ficha criado.');
+  }
+
+  function normalizeKey(value = '') {
+    return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  const IMPORT_ATTRIBUTE_KEYS = {
+    con:'con', constituicao:'con', constituio:'con',
+    fr:'fr', forca:'fr',
+    dex:'dex', destreza:'dex',
+    agi:'agi', agilidade:'agi',
+    int:'int', inteligencia:'int',
+    will:'will', vontade:'will', forcadevontade:'will',
+    per:'per', percepcao:'per',
+    car:'car', carisma:'car'
+  };
+
+  function catalogMatchByName(name = '', category = '') {
+    const target = normalizeKey(name);
+    const cat = normalizeKey(category);
+    return SKILL_CATALOG.find(item => normalizeKey(item.name) === target && (!cat || normalizeKey(item.category) === cat))
+      || SKILL_CATALOG.find(item => normalizeKey(item.name) === target)
+      || null;
+  }
+
+  function listFromImport(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) return cloneJson(value);
+    if (typeof value === 'string') return value.split(/\n|;/).map(v => v.trim()).filter(Boolean).map(name => ({ name, detail:'' }));
+    if (typeof value === 'object') return Object.entries(value).map(([name, detail]) => ({ name, detail: String(detail ?? '') }));
+    return [];
+  }
+
+  function skillsFromImport(value, currentSheet) {
+    if (!value) return [];
+    const rows = Array.isArray(value)
+      ? value
+      : typeof value === 'object'
+        ? Object.entries(value).map(([name, v]) => typeof v === 'object' ? { name, ...v } : { name, value:v })
+        : [];
+    return rows.map(raw => {
+      const sk = typeof raw === 'string' ? { name:raw, value:0 } : raw || {};
+      const catalog = sk.catalogId ? skillCatalogEntry(sk.catalogId) : catalogMatchByName(sk.name, sk.category);
+      const base = sk.baseValue != null ? Number(sk.baseValue) || 0 : (catalog ? skillBaseValue(catalog, currentSheet) : 0);
+      const valueNum = Math.max(0, Number(sk.value ?? sk.total ?? base) || 0);
+      const spent = Math.max(0, Number(sk.spent) || Math.max(0, valueNum - base));
+      return {
+        id: uid('skill'),
+        catalogId: sk.catalogId || catalog?.id || '',
+        category: sk.category || catalog?.category || '',
+        name: String(sk.name || catalog?.name || 'Perícia'),
+        baseValue: base,
+        spent,
+        value: valueNum,
+        combat: sk.combat != null ? !!sk.combat : !!catalog?.combat
+      };
+    }).filter(sk => sk.name.trim());
+  }
+
+  function readImportedCharacter(parsed) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('O JSON precisa ser um objeto.');
+    if (parsed.schema && parsed.schema !== JSON_SCHEMA) throw new Error('Este JSON não parece ser uma ficha do Fichas Daemon.');
+    const data = parsed.character && typeof parsed.character === 'object' ? parsed.character : parsed;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Não encontrei os dados do personagem.');
+    return data;
+  }
+
+  function applyImportedCharacter(data, { importOwner = false } = {}) {
+    const s = sheet();
+    if (!s) throw new Error('Nenhuma ficha aberta.');
+
+    const identityKeys = ['name','title','race','sect','kit','level','fatalism','epicScale','concept','age','profession','notes'];
+    identityKeys.forEach(key => { if (data[key] != null) s[key] = String(data[key]); });
+    if (importOwner && data.ownerName != null) s.ownerName = String(data.ownerName);
+
+    if (data.attributes && typeof data.attributes === 'object') {
+      Object.entries(data.attributes).forEach(([key, value]) => {
+        const internal = IMPORT_ATTRIBUTE_KEYS[normalizeKey(key)];
+        if (internal) s.attributes[internal] = Math.max(1, Number(value) || 1);
+      });
+    }
+
+    if (data.skills != null) s.skills = skillsFromImport(data.skills, s);
+    if (data.creation && typeof data.creation === 'object') s.creation = { ...s.creation, ...cloneJson(data.creation) };
+    if (data.reserves && typeof data.reserves === 'object') {
+      ['skillPoints','upgradePoints','heroPoints','magicPoints'].forEach(key => {
+        if (data.reserves[key] != null) s.reserves[key] = Math.max(0, Number(data.reserves[key]) || 0);
+      });
+    }
+    if (data.combat && typeof data.combat === 'object') {
+      ['hp','hpMax','initiative','defense','armor','damageBonus'].forEach(key => {
+        if (data.combat[key] != null) s.combat[key] = Number(data.combat[key]) || 0;
+      });
+      if (data.combat.attacks != null) s.combat.attacks = listFromImport(data.combat.attacks);
+      s.combat.hpMax = Math.max(1, Number(s.combat.hpMax) || 1);
+      s.combat.hp = Math.max(0, Math.min(s.combat.hpMax, Number(s.combat.hp) || 0));
+    }
+
+    ['magic','inventory','upgrades','powers','weaknesses'].forEach(key => {
+      if (data[key] != null) s[key] = listFromImport(data[key]);
+    });
+
+    normalizeSheet(s);
+    s.updatedAt = Date.now();
+    saveState();
+  }
+
+  function openJsonImport() {
+    modal({
+      title:'Importar ficha por JSON',
+      copy:'Escolha um arquivo .json ou cole o conteúdo. A ficha aberta será atualizada, mas continuará pertencendo à mesa e ao usuário atuais.',
+      body:`<form class="form" id="json-import-form">
+        <div class="field"><label class="label">Arquivo JSON</label><input class="input" id="json-file-input" type="file" accept=".json,application/json"></div>
+        <div class="json-drop-note">O arquivo fica somente no seu navegador. Nada é enviado para servidor.</div>
+        <div class="field"><label class="label">Ou cole o JSON</label><textarea class="textarea json-textarea" id="json-import-text" name="json" placeholder='{"schema":"fichas-daemon-character", ...}'></textarea></div>
+        <label class="json-check"><input type="checkbox" name="importOwner" value="1"> Também importar o nome do jogador</label>
+        <div class="json-warning"><strong>Atenção:</strong> campos presentes no JSON substituem os dados equivalentes da ficha atual.</div>
+        <button class="btn primary" type="submit">Ler JSON e atualizar ficha</button>
+      </form>`
+    });
+  }
+
+  function openJsonPreview() {
+    const s = sheet(); if (!s) return;
+    const json = JSON.stringify(exportPayload(s), null, 2);
+    modal({
+      title:'JSON da ficha',
+      copy:'Esse é o formato portátil da ficha. Pode copiar, salvar ou mandar para outro jogador importar.',
+      body:`<textarea class="textarea json-textarea json-preview" id="json-preview" readonly>${esc(json)}</textarea>
+        <div class="flex gap8 mt12 wrap"><button class="btn primary" data-action="download-json">Baixar .json</button><button class="btn" data-action="copy-json">Copiar JSON</button></div>`
+    });
+  }
+
 
   function skillCatalogEntry(id) {
     return SKILL_CATALOG.find(item => item.id === id) || null;
@@ -673,7 +883,11 @@
         <main class="content">
           <div class="sheet-toolbar">
             <div class="flex gap8 wrap">${renderSheetBackButton()}${renderSheetModeSwitch()}</div>
-            <button class="btn" data-action="quick-roll">Rolar d100</button>
+            <div class="flex gap8 wrap json-toolbar">
+              <button class="btn" data-action="import-json">Importar JSON</button>
+              <button class="btn" data-action="preview-json">Exportar JSON</button>
+              <button class="btn" data-action="quick-roll">Rolar d100</button>
+            </div>
           </div>
           <div class="page-head sheet-page-head">
             <div class="identity-hero">
@@ -1118,6 +1332,10 @@
     if (action === 'roll-skill') { const s=sheet(); const sk=s.skills.find(x=>x.id===el.dataset.skill); if(sk) doRoll(sk.name,sk.value); return; }
     if (action === 'roll-attack') { const s=sheet(); const attack=s?.combat?.attacks?.[Number(el.dataset.index)]; const target=parsePercent(attack?.detail || ''); if(attack && target) doRoll(attack.name,target); return; }
     if (action === 'quick-roll') return doRoll('Teste livre',100);
+    if (action === 'import-json') return openJsonImport();
+    if (action === 'preview-json') return openJsonPreview();
+    if (action === 'download-json') { closeModal(); return exportSheetJson(); }
+    if (action === 'copy-json') { const text=JSON.stringify(exportPayload(sheet()),null,2); navigator.clipboard?.writeText(text); toast('JSON copiado.'); return; }
     if (action === 'generate-skill-budget') return generateInitialSkillBudget();
     if (action === 'open-skill-catalog') return openSkillCatalog();
     if (action === 'skill-catalog-select') return openSkillPurchase(el.dataset.id);
@@ -1168,6 +1386,18 @@
     if (!(form instanceof HTMLFormElement)) return;
     e.preventDefault();
     const fd = new FormData(form);
+
+    if (form.id === 'json-import-form') {
+      try {
+        const text=String(fd.get('json')||'').trim();
+        if(!text){toast('Escolha um arquivo JSON ou cole o conteúdo.');return;}
+        const parsed=JSON.parse(text);
+        const data=readImportedCharacter(parsed);
+        applyImportedCharacter(data,{importOwner:fd.get('importOwner')==='1'});
+        closeModal(); renderSheet(); toast('Ficha atualizada pelo JSON.');
+      } catch (err) { toast(`Não consegui importar: ${err?.message || 'JSON inválido.'}`); }
+      return;
+    }
 
     if (form.id === 'join-form') {
       reloadState();
@@ -1220,6 +1450,18 @@
     if (form.id === 'master-hp-form') {
       const s=campaign().sheets[form.dataset.sheet];s.combat.hpMax=Math.max(1,Number(fd.get('hpMax'))||1);s.combat.hp=Math.max(0,Math.min(s.combat.hpMax,Number(fd.get('hp'))||0));saveState();closeModal();renderMasterDashboard();return;
     }
+  });
+
+  document.addEventListener('change', e => {
+    const target=e.target;
+    if (target?.id !== 'json-file-input') return;
+    const file=target.files?.[0];
+    if(!file) return;
+    if(file.size > 2 * 1024 * 1024){toast('Esse JSON é grande demais. Limite: 2 MB.');target.value='';return;}
+    const reader=new FileReader();
+    reader.onload=()=>{const area=document.querySelector('#json-import-text');if(area)area.value=String(reader.result||'');};
+    reader.onerror=()=>toast('Não consegui ler esse arquivo.');
+    reader.readAsText(file,'utf-8');
   });
 
   document.addEventListener('input', e => {

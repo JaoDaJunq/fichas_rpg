@@ -45,3 +45,14 @@ Os dados continuam em `localStorage`. Abas do mesmo navegador sincronizam entre 
 - Perícia nova exige investimento mínimo de 10 pontos e permite até 50 pontos acima da base na criação.
 - Botão opcional calcula o orçamento inicial de Perícias por INT x 5 + Idade x 10, limitado a 500.
 - Catálogo de Aprimoramentos positivos e negativos integrado à ficha.
+
+## Importar e exportar fichas por JSON (v7)
+
+Na tela **Editar ficha** existem dois novos botões:
+
+- **Exportar JSON**: mostra o conteúdo portátil da ficha e permite baixar um arquivo `.json` ou copiar o texto.
+- **Importar JSON**: aceita um arquivo `.json` ou conteúdo colado e atualiza a ficha que estiver aberta.
+
+A importação preserva o identificador interno da ficha, a mesa atual e o dispositivo dono. Isso permite criar uma ficha vazia em outra mesa e importar os dados de um personagem sem levar junto o vínculo da campanha anterior.
+
+O pacote também inclui `ficha-jao-exemplo.json`, transcrito das fotos enviadas como exemplo para testar a importação. Campos manuscritos que não estavam legíveis o suficiente foram deixados de fora em vez de serem adivinhados.
