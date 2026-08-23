@@ -35,3 +35,13 @@ A chave de armazenamento continua a mesma da versão anterior, então as mesas e
 ## Limitação atual
 
 Os dados continuam em `localStorage`. Abas do mesmo navegador sincronizam entre si, mas dispositivos diferentes ainda precisam de um banco online para compartilhar a mesma mesa em tempo real.
+
+
+## v6 - criação pelo livro
+
+- Catálogo de Perícias por grupos e subgrupos do Sistema Daemon/Trevas.
+- Valor-base de cada Perícia usa o Atributo correspondente ou 0% nas técnicas.
+- Idioma Nativo começa em 30%.
+- Perícia nova exige investimento mínimo de 10 pontos e permite até 50 pontos acima da base na criação.
+- Botão opcional calcula o orçamento inicial de Perícias por INT x 5 + Idade x 10, limitado a 500.
+- Catálogo de Aprimoramentos positivos e negativos integrado à ficha.
