@@ -30,6 +30,7 @@
     campaignId: null,
     sheetId: null,
     masterTab: 'overview',
+    sheetMode: 'play',
     openSections: new Set(['skills', 'attributes']),
     playerMode: 'list'
   };
@@ -60,7 +61,37 @@
     }
   }
 
-  let state = loadState();
+  function normalizeSheet(s) {
+    if (!s) return s;
+    const defaults = {
+      title: '', race: '', sect: '', kit: '', level: '', fatalism: '', epicScale: '',
+      concept: '', age: '', profession: '', notes: ''
+    };
+    Object.entries(defaults).forEach(([key, value]) => { if (s[key] == null) s[key] = value; });
+    s.attributes ||= {};
+    ATTRIBUTES.forEach(([key]) => { if (s.attributes[key] == null) s.attributes[key] = 10; });
+    s.skills ||= [];
+    s.reserves ||= { skillPoints: 0, upgradePoints: 0, heroPoints: 0, magicPoints: 0 };
+    ['skillPoints','upgradePoints','heroPoints','magicPoints'].forEach(key => { if (s.reserves[key] == null) s.reserves[key] = 0; });
+    s.combat ||= { hp: 20, hpMax: 20, initiative: 0, defense: 0, armor: 0, damageBonus: 0, attacks: [] };
+    if (!Array.isArray(s.combat.attacks)) s.combat.attacks = [];
+    ['hp','hpMax','initiative','defense','armor','damageBonus'].forEach(key => { if (s.combat[key] == null) s.combat[key] = key === 'hpMax' ? 20 : key === 'hp' ? 20 : 0; });
+    ['magic','inventory','upgrades','powers','weaknesses'].forEach(key => { if (!Array.isArray(s[key])) s[key] = []; });
+    return s;
+  }
+
+  function normalizeStateShape(target) {
+    target.campaigns ||= {};
+    Object.values(target.campaigns).forEach(c => {
+      c.rules = { ...defaultRules(), ...(c.rules || {}) };
+      c.sheets ||= {};
+      c.logs ||= [];
+      Object.values(c.sheets).forEach(normalizeSheet);
+    });
+    return target;
+  }
+
+  let state = normalizeStateShape(loadState());
 
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -68,7 +99,7 @@
   }
 
   function reloadState() {
-    state = loadState();
+    state = normalizeStateShape(loadState());
     return state;
   }
 
@@ -109,6 +140,13 @@
       concept: '',
       age: '',
       profession: '',
+      title: '',
+      race: '',
+      sect: '',
+      kit: '',
+      level: '',
+      fatalism: '',
+      epicScale: '',
       attributes,
       skills: DEFAULT_SKILLS.map(([name, value]) => ({ id: uid('skill'), name, value })),
       reserves: { skillPoints: 0, upgradePoints: 0, heroPoints: 0, magicPoints: 0 },
@@ -251,7 +289,7 @@
               <div class="sep"></div>
               <div class="flex between center gap8 wrap">
                 <span class="small-text muted">${s.reserves.skillPoints} pts. de perícia · ${s.reserves.upgradePoints} aprim.</span>
-                <button class="btn primary small" data-action="open-sheet" data-campaign="${c.id}" data-sheet="${s.id}">Abrir ficha</button>
+                <div class="flex gap8 wrap"><button class="btn primary small" data-action="open-sheet" data-mode="play" data-campaign="${c.id}" data-sheet="${s.id}">Jogar</button><button class="btn small" data-action="open-sheet" data-mode="edit" data-campaign="${c.id}" data-sheet="${s.id}">Editar</button></div>
               </div>
             </article>`).join('')}</div>` : `
             <div class="empty"><strong>Nenhuma ficha neste navegador.</strong>Entre em uma mesa pelo código de convite para criar seu primeiro personagem.<div class="mt16"><button class="btn primary" data-action="join-table">Entrar em mesa</button></div></div>`}
@@ -287,17 +325,39 @@
 
   function renderSheet() {
     const c = campaign(); const s = sheet();
-    if (!c || !s) return renderPlayerLobby();
+    if (!c || !s) return ui.role === 'master' ? renderMasterDashboard() : renderPlayerLobby();
+    normalizeSheet(s);
+    return ui.sheetMode === 'edit' ? renderEditSheet(c, s) : renderPlaySheet(c, s);
+  }
+
+  function renderSheetModeSwitch() {
+    return `<div class="sheet-mode-tabs" aria-label="Visualização da ficha">
+      <button class="sheet-mode-btn ${ui.sheetMode === 'play' ? 'active' : ''}" data-action="sheet-mode" data-mode="play">◈ Modo de jogo</button>
+      <button class="sheet-mode-btn ${ui.sheetMode === 'edit' ? 'active' : ''}" data-action="sheet-mode" data-mode="edit">✎ Editar ficha</button>
+    </div>`;
+  }
+
+  function renderSheetBackButton() {
+    return ui.role === 'master'
+      ? '<button class="btn ghost" data-action="back-master-dashboard">Painel do mestre</button>'
+      : '<button class="btn ghost" data-action="player-home">Minhas fichas</button>';
+  }
+
+  function renderEditSheet(c, s) {
     app.innerHTML = `
       <div class="shell">
         ${topbar(c.name)}
         <main class="content">
-          <div class="page-head">
+          <div class="sheet-toolbar">
+            <div class="flex gap8 wrap">${renderSheetBackButton()}${renderSheetModeSwitch()}</div>
+            <button class="btn" data-action="quick-roll">Rolar d100</button>
+          </div>
+          <div class="page-head sheet-page-head">
             <div class="identity-hero">
               <div class="avatar">${esc((s.name || '?').slice(0,1).toUpperCase())}</div>
-              <div><h1 class="char-name">${esc(s.name)}</h1><div class="char-sub">${esc(s.ownerName)} · ${esc(c.name)} · código ${esc(c.code)}</div></div>
+              <div><div class="eyebrow">Atualização da ficha</div><h1 class="char-name">${esc(s.name)}</h1><div class="char-sub">${esc(s.ownerName)} · ${esc(c.name)} · código ${esc(c.code)}</div></div>
             </div>
-            <div class="flex gap8">${ui.role === 'master' ? '<button class="btn ghost" data-action="back-master-dashboard">Painel do mestre</button>' : '<button class="btn ghost" data-action="player-home">Minhas fichas</button>'}<button class="btn" data-action="quick-roll">Rolar d100</button></div>
+            <span class="pill gold">Alterações salvas automaticamente</span>
           </div>
           <div class="sheet-layout">
             <div class="sheet-main"><div class="section-stack">${SECTIONS.map((sec,i) => renderSection(sec,i,s,c)).join('')}</div></div>
@@ -307,11 +367,174 @@
                   <div class="stat"><div class="stat-label">Perícia</div><div class="stat-value">${s.reserves.skillPoints}</div></div>
                   <div class="stat"><div class="stat-label">Aprim.</div><div class="stat-value">${s.reserves.upgradePoints}</div></div>
                 </div>
-                <p class="card-copy mt12">Use os pontos diretamente nas seções de perícias e aprimoramentos.</p>
+                <p class="card-copy mt12">Aqui é onde a ficha cresce. Durante a sessão, use o Modo de jogo para enxergar tudo mais rápido.</p>
               </div>
               <div class="card"><div class="eyebrow">Últimos testes</div><h3 class="card-title">Rolagens da mesa</h3>${renderMiniLogs(c)}</div>
             </aside>
           </div>
+        </main>
+        ${renderHpDock(s)}
+      </div>`;
+  }
+
+  function isCombatSkill(skill) {
+    return /(arma|armas|combate|briga|luta|esquiva|tiro|arco|lança|espada|machado)/i.test(skill.name || '');
+  }
+
+  function renderGameSkillRows(skills, empty = 'Nenhuma perícia cadastrada.') {
+    if (!skills.length) return `<div class="game-empty">${empty}</div>`;
+    return `<div class="game-skill-list">${skills.map(sk => `
+      <button class="game-skill-row" data-action="roll-skill" data-skill="${sk.id}" title="Rolar ${esc(sk.name)}">
+        <span class="game-skill-name">${esc(sk.name)}</span>
+        <strong class="game-skill-value">${Number(sk.value) || 0}%</strong>
+        <span class="game-die">d100</span>
+      </button>`).join('')}</div>`;
+  }
+
+  function parsePercent(value = '') {
+    const match = String(value).match(/(\d{1,3})\s*%/);
+    return match ? Math.max(1, Math.min(100, Number(match[1]))) : null;
+  }
+
+  function renderGameAttacks(s) {
+    if (!s.combat.attacks.length) return '<div class="game-empty">Nenhum ataque cadastrado.</div>';
+    return `<div class="game-attack-list">${s.combat.attacks.map((attack, index) => {
+      const target = parsePercent(attack.detail || '');
+      return `<div class="game-attack-row">
+        <div class="game-attack-main"><strong>${esc(attack.name)}</strong>${attack.detail ? `<span>${esc(attack.detail)}</span>` : ''}</div>
+        ${target ? `<button class="game-roll-mini" data-action="roll-attack" data-index="${index}" title="Rolar ataque">${target}% ◆</button>` : '<span class="game-chip">ataque</span>'}
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  function renderGameList(list, empty = 'Nada anotado.') {
+    if (!list.length) return `<div class="game-empty">${empty}</div>`;
+    return `<div class="game-read-list">${list.map(item => {
+      const title = typeof item === 'string' ? item : item.name;
+      const detail = typeof item === 'string' ? '' : (item.detail || item.value || '');
+      return `<div class="game-read-item"><strong>${esc(title || '')}</strong>${detail ? `<span>${esc(detail)}</span>` : ''}</div>`;
+    }).join('')}</div>`;
+  }
+
+  function renderResourceOrb(label, value, key = '') {
+    const controls = key ? `<div class="orb-controls"><button data-action="resource-minus" data-resource="${key}" aria-label="Diminuir ${label}">−</button><button data-action="resource-plus" data-resource="${key}" aria-label="Aumentar ${label}">+</button></div>` : '';
+    return `<div class="resource-orb"><span>${label}</span><strong>${value}</strong>${controls}</div>`;
+  }
+
+  function renderPlaySheet(c, s) {
+    const allSkills = [...s.skills].sort((a,b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const combatSkills = allSkills.filter(isCombatSkill);
+    const generalSkills = allSkills.filter(sk => !isCombatSkill(sk));
+    const hpPct = Math.max(0, Math.min(100, (s.combat.hp / Math.max(1, s.combat.hpMax)) * 100));
+    const meta = [s.title, s.race, s.profession, s.concept].filter(Boolean);
+
+    app.innerHTML = `
+      <div class="shell play-shell">
+        ${topbar(c.name)}
+        <main class="content game-content">
+          <div class="sheet-toolbar game-toolbar">
+            <div class="flex gap8 wrap">${renderSheetBackButton()}${renderSheetModeSwitch()}</div>
+            <button class="btn" data-action="quick-roll">Rolar d100</button>
+          </div>
+
+          <article class="game-sheet">
+            <header class="game-identity">
+              <div class="game-identity-copy">
+                <div class="game-kicker">FICHA DE JOGO · ${esc(c.name)}</div>
+                <h1>${esc(s.name)}</h1>
+                <div class="game-owner">${esc(s.ownerName)}${meta.length ? ` · ${meta.map(esc).join(' · ')}` : ''}</div>
+                <div class="game-id-lines">
+                  ${s.sect ? `<span><b>Seita</b>${esc(s.sect)}</span>` : ''}
+                  ${s.kit ? `<span><b>Kit</b>${esc(s.kit)}</span>` : ''}
+                  ${s.level ? `<span><b>Nível</b>${esc(s.level)}</span>` : ''}
+                  ${s.age ? `<span><b>Idade</b>${esc(s.age)}</span>` : ''}
+                  ${s.fatalism ? `<span><b>Fatalismo</b>${esc(s.fatalism)}</span>` : ''}
+                  ${s.epicScale ? `<span><b>Escala épica</b>${esc(s.epicScale)}</span>` : ''}
+                </div>
+              </div>
+              <div class="game-vital-card">
+                <span>PV</span>
+                <div><strong>${s.combat.hp}</strong><small>/ ${s.combat.hpMax}</small></div>
+                <div class="game-hp-track"><span style="width:${hpPct}%"></span></div>
+                <div class="game-vital-actions"><button data-action="hp-minus">−</button><button data-action="hp-plus">+</button></div>
+              </div>
+            </header>
+
+            <div class="game-columns">
+              <div class="game-column">
+                <section class="game-panel attributes-panel">
+                  <div class="game-panel-head"><h2>Atributos</h2><span>toque para testar</span></div>
+                  <div class="game-attributes">${ATTRIBUTES.map(([key, name]) => `
+                    <button class="game-attribute" data-action="roll-attr-now" data-attr="${key}">
+                      <span>${name}</span><strong>${s.attributes[key]}</strong><small>${s.attributes[key] * c.rules.attributeMultiplier}%</small>
+                    </button>`).join('')}</div>
+                </section>
+
+                <section class="game-panel combat-panel">
+                  <div class="game-panel-head"><h2>Combate</h2><span>o que importa na hora</span></div>
+                  <div class="game-combat-stats">
+                    <div><span>Iniciativa</span><strong>${s.combat.initiative}</strong></div>
+                    <div><span>Defesa</span><strong>${s.combat.defense}</strong></div>
+                    <div><span>Armadura</span><strong>${s.combat.armor}</strong></div>
+                    <div><span>Bônus dano</span><strong>${s.combat.damageBonus}</strong></div>
+                  </div>
+                  <h3 class="game-subtitle">Ataques</h3>
+                  ${renderGameAttacks(s)}
+                  ${combatSkills.length ? `<h3 class="game-subtitle">Perícias de combate</h3>${renderGameSkillRows(combatSkills)}` : ''}
+                </section>
+
+                <section class="game-panel reserves-panel">
+                  <div class="game-panel-head"><h2>Reservas</h2><span>controle rápido</span></div>
+                  <div class="resource-orbs">
+                    ${renderResourceOrb('PV', `${s.combat.hp}/${s.combat.hpMax}`)}
+                    ${renderResourceOrb('PH', s.reserves.heroPoints, 'heroPoints')}
+                    ${renderResourceOrb('PM', s.reserves.magicPoints, 'magicPoints')}
+                    ${renderResourceOrb('Perícia', s.reserves.skillPoints)}
+                    ${renderResourceOrb('Aprim.', s.reserves.upgradePoints)}
+                  </div>
+                </section>
+
+                <section class="game-panel">
+                  <div class="game-panel-head"><h2>Aprimoramentos</h2><span>${s.upgrades.length}</span></div>
+                  ${renderGameList(s.upgrades, 'Nenhum aprimoramento cadastrado.')}
+                </section>
+              </div>
+
+              <div class="game-column game-column-wide">
+                <section class="game-panel skills-panel">
+                  <div class="game-panel-head"><h2>Perícias</h2><span>1d100 contra o valor</span></div>
+                  ${renderGameSkillRows(generalSkills, 'Nenhuma perícia geral cadastrada.')}
+                </section>
+
+                <div class="game-pair">
+                  <section class="game-panel">
+                    <div class="game-panel-head"><h2>Magia</h2><span>${s.magic.length}</span></div>
+                    ${renderGameList(s.magic, 'Nenhuma magia anotada.')}
+                  </section>
+                  <section class="game-panel">
+                    <div class="game-panel-head"><h2>Equipamentos</h2><span>${s.inventory.length}</span></div>
+                    ${renderGameList(s.inventory, 'Inventário vazio.')}
+                  </section>
+                </div>
+
+                <div class="game-pair">
+                  <section class="game-panel">
+                    <div class="game-panel-head"><h2>Poderes</h2><span>${s.powers.length}</span></div>
+                    ${renderGameList(s.powers, 'Nenhum poder cadastrado.')}
+                  </section>
+                  <section class="game-panel danger-panel">
+                    <div class="game-panel-head"><h2>Fraquezas</h2><span>${s.weaknesses.length}</span></div>
+                    ${renderGameList(s.weaknesses, 'Nenhuma fraqueza cadastrada.')}
+                  </section>
+                </div>
+
+                <section class="game-panel notes-panel">
+                  <div class="game-panel-head"><h2>Anotações rápidas</h2><span>leitura</span></div>
+                  <p>${s.notes ? esc(s.notes).replaceAll('\n','<br>') : 'Sem anotações ainda. Use “Editar ficha” para registrar pistas, contatos e observações.'}</p>
+                </section>
+              </div>
+            </div>
+          </article>
         </main>
         ${renderHpDock(s)}
       </div>`;
@@ -357,7 +580,20 @@
       case 'inventory': return `${renderGenericList(s.inventory,'Inventário vazio.','remove-inventory')}<button class="btn small mt12" data-action="add-inventory">+ Item</button>`;
       case 'upgrades': return `${renderGenericList(s.upgrades,'Nenhum aprimoramento.','remove-upgrade')}<div class="flex gap8 mt12"><button class="btn small" data-action="add-upgrade">+ Aprimoramento</button>${s.reserves.upgradePoints > 0 ? `<span class="pill green">${s.reserves.upgradePoints} ponto(s) disponível(is)</span>` : ''}</div>`;
       case 'powers': return `<div class="grid two"><div><div class="label">Poderes</div><div class="mt8">${renderGenericList(s.powers,'Nenhum poder.','remove-power')}</div><button class="btn small mt12" data-action="add-power">+ Poder</button></div><div><div class="label">Fraquezas</div><div class="mt8">${renderGenericList(s.weaknesses,'Nenhuma fraqueza.','remove-weakness')}</div><button class="btn small mt12" data-action="add-weakness">+ Fraqueza</button></div></div>`;
-      case 'identity': return `<div class="grid two"><div class="field"><label class="label">Nome</label><input class="input" data-bind="name" value="${esc(s.name)}"></div><div class="field"><label class="label">Jogador</label><input class="input" data-bind="ownerName" value="${esc(s.ownerName)}"></div><div class="field"><label class="label">Conceito</label><input class="input" data-bind="concept" value="${esc(s.concept)}" placeholder="Ex.: investigador ocultista"></div><div class="field"><label class="label">Profissão</label><input class="input" data-bind="profession" value="${esc(s.profession)}"></div><div class="field"><label class="label">Idade</label><input class="input" data-bind="age" value="${esc(s.age)}"></div></div><div class="hint mt12">Alterações são salvas automaticamente.</div>`;
+      case 'identity': return `<div class="grid two">
+        <div class="field"><label class="label">Nome</label><input class="input" data-bind="name" value="${esc(s.name)}"></div>
+        <div class="field"><label class="label">Jogador</label><input class="input" data-bind="ownerName" value="${esc(s.ownerName)}"></div>
+        <div class="field"><label class="label">Título</label><input class="input" data-bind="title" value="${esc(s.title)}" placeholder="Ex.: O Vigia"></div>
+        <div class="field"><label class="label">Raça</label><input class="input" data-bind="race" value="${esc(s.race)}"></div>
+        <div class="field"><label class="label">Conceito</label><input class="input" data-bind="concept" value="${esc(s.concept)}" placeholder="Ex.: investigador ocultista"></div>
+        <div class="field"><label class="label">Profissão</label><input class="input" data-bind="profession" value="${esc(s.profession)}"></div>
+        <div class="field"><label class="label">Seita</label><input class="input" data-bind="sect" value="${esc(s.sect)}"></div>
+        <div class="field"><label class="label">Kit</label><input class="input" data-bind="kit" value="${esc(s.kit)}"></div>
+        <div class="field"><label class="label">Nível</label><input class="input" data-bind="level" value="${esc(s.level)}"></div>
+        <div class="field"><label class="label">Idade</label><input class="input" data-bind="age" value="${esc(s.age)}"></div>
+        <div class="field"><label class="label">Fatalismo</label><input class="input" data-bind="fatalism" value="${esc(s.fatalism)}"></div>
+        <div class="field"><label class="label">Escala épica</label><input class="input" data-bind="epicScale" value="${esc(s.epicScale)}"></div>
+      </div><div class="hint mt12">Esses dados aparecem de forma compacta no Modo de jogo. Alterações são salvas automaticamente.</div>`;
       case 'notes': return `<textarea class="textarea" data-bind="notes" placeholder="Anotações da sessão, pistas, contatos, promessas, coisas estranhas...">${esc(s.notes)}</textarea><div class="hint mt8">Salvamento automático neste navegador.</div>`;
       default: return '';
     }
@@ -424,7 +660,7 @@
       return `<article class="player-card"><div class="player-card-head"><div><div class="player-name">${esc(s.name)}</div><div class="player-owner">Jogador: ${esc(s.ownerName)}</div></div><span class="pill ${pct<30?'red':pct<65?'gold':'green'}">${s.combat.hp}/${s.combat.hpMax} PV</span></div>
       <div class="mini-hp"><div class="mini-hp-line"><span>Vida</span><span>${Math.round(pct)}%</span></div><div class="mini-track"><div class="mini-fill" style="width:${pct}%"></div></div></div>
       ${full ? `<div class="stat-grid mt12" style="grid-template-columns:1fr 1fr"><div class="stat"><div class="stat-label">Pts perícia</div><div class="stat-value">${s.reserves.skillPoints}</div></div><div class="stat"><div class="stat-label">Pts aprim.</div><div class="stat-value">${s.reserves.upgradePoints}</div></div></div>` : ''}
-      <div class="player-actions"><button class="btn small" data-action="master-open-sheet" data-sheet="${s.id}">Ver ficha</button><button class="btn success small" data-action="give-points" data-sheet="${s.id}">Dar pontos</button><button class="btn small" data-action="master-hp" data-sheet="${s.id}">Ajustar PV</button></div></article>`;
+      <div class="player-actions"><button class="btn primary small" data-action="master-open-sheet" data-mode="play" data-sheet="${s.id}">Modo de jogo</button><button class="btn small" data-action="master-open-sheet" data-mode="edit" data-sheet="${s.id}">Editar ficha</button><button class="btn success small" data-action="give-points" data-sheet="${s.id}">Dar pontos</button><button class="btn small" data-action="master-hp" data-sheet="${s.id}">Ajustar PV</button></div></article>`;
     }).join('')}</div>`;
   }
 
@@ -532,9 +768,11 @@
     if (action === 'master-create-sheet') return openMasterCreateSheet();
     if (action === 'copy-code') { navigator.clipboard?.writeText(el.dataset.code); toast(`Código ${el.dataset.code} copiado.`); return; }
     if (action === 'master-login') return openMasterLogin(el.dataset.campaign);
-    if (action === 'open-sheet') { ui.campaignId=el.dataset.campaign; ui.sheetId=el.dataset.sheet; ui.role='player'; return renderSheet(); }
+    if (action === 'open-sheet') { ui.campaignId=el.dataset.campaign; ui.sheetId=el.dataset.sheet; ui.role='player'; ui.sheetMode=el.dataset.mode || 'play'; return renderSheet(); }
+    if (action === 'sheet-mode') { ui.sheetMode=el.dataset.mode === 'edit' ? 'edit' : 'play'; return renderSheet(); }
     if (action === 'toggle-section') { const k=el.dataset.section; ui.openSections.has(k)?ui.openSections.delete(k):ui.openSections.add(k); return renderSheet(); }
     if (action === 'roll-skill') { const s=sheet(); const sk=s.skills.find(x=>x.id===el.dataset.skill); if(sk) doRoll(sk.name,sk.value); return; }
+    if (action === 'roll-attack') { const s=sheet(); const attack=s?.combat?.attacks?.[Number(el.dataset.index)]; const target=parsePercent(attack?.detail || ''); if(attack && target) doRoll(attack.name,target); return; }
     if (action === 'quick-roll') return doRoll('Teste livre',100);
     if (action === 'add-skill') return promptSimple('Nova perícia','Nome','Ex.: Arrombamento',(name)=>{ sheet().skills.push({id:uid('skill'),name,value:10}); saveState(); });
     if (action === 'spend-skill') return spendSkillModal(sheet(),campaign());
@@ -548,14 +786,20 @@
     if (action === 'add-upgrade') return promptSimple('Novo aprimoramento','Nome','Ex.: Contatos',(name,detail)=>{sheet().upgrades.push({name,detail});saveState();},'Nível, custo ou efeito');
     if (action === 'add-power') return promptSimple('Novo poder','Nome','Ex.: Sentidos ampliados',(name,detail)=>{sheet().powers.push({name,detail});saveState();},'Efeito');
     if (action === 'add-weakness') return promptSimple('Nova fraqueza','Nome','Ex.: Vulnerável à prata',(name,detail)=>{sheet().weaknesses.push({name,detail});saveState();},'Efeito');
-    if (action === 'hp-minus') { const s=sheet(); s.combat.hp=Math.max(0,s.combat.hp-1);saveState();return renderSheet(); }
-    if (action === 'hp-plus') { const s=sheet(); s.combat.hp=Math.min(s.combat.hpMax,s.combat.hp+1);saveState();return renderSheet(); }
+    if (action === 'hp-minus') { const s=sheet(); s.combat.hp=Math.max(0,s.combat.hp-1);s.updatedAt=Date.now();saveState();return renderSheet(); }
+    if (action === 'hp-plus') { const s=sheet(); s.combat.hp=Math.min(s.combat.hpMax,s.combat.hp+1);s.updatedAt=Date.now();saveState();return renderSheet(); }
+    if (action === 'resource-minus' || action === 'resource-plus') {
+      const s=sheet(); const key=el.dataset.resource;
+      if (!s?.reserves || !['heroPoints','magicPoints'].includes(key)) return;
+      const delta=action === 'resource-plus' ? 1 : -1;
+      s.reserves[key]=Math.max(0,(Number(s.reserves[key])||0)+delta);s.updatedAt=Date.now();saveState();return renderSheet();
+    }
 
     const removeMap = { 'remove-attack':['combat','attacks'],'remove-magic':[null,'magic'],'remove-inventory':[null,'inventory'],'remove-upgrade':[null,'upgrades'],'remove-power':[null,'powers'],'remove-weakness':[null,'weaknesses'] };
     if (removeMap[action]) { const s=sheet(); const [parent,key]=removeMap[action]; const list=parent?s[parent][key]:s[key]; list.splice(Number(el.dataset.index),1);saveState();return renderSheet(); }
 
     if (action === 'master-tab') { ui.masterTab=el.dataset.tab; return renderMasterDashboard(); }
-    if (action === 'master-open-sheet') { ui.sheetId=el.dataset.sheet; ui.role='master'; return renderSheet(); }
+    if (action === 'master-open-sheet') { ui.sheetId=el.dataset.sheet; ui.role='master'; ui.sheetMode=el.dataset.mode || 'play'; return renderSheet(); }
     if (action === 'back-master-dashboard') { ui.sheetId=null; ui.role='master'; return renderMasterDashboard(); }
     if (action === 'give-points') return givePointsModal(campaign().sheets[el.dataset.sheet]);
     if (action === 'master-hp') return adjustMasterHpModal(campaign().sheets[el.dataset.sheet]);
@@ -577,12 +821,12 @@
       const c=Object.values(state.campaigns).find(x=>String(x.code||'').toUpperCase()===code);
       if(!c){toast('Mesa não encontrada. Atualize a página do mestre e confirme o código.');return;}
       const s=newSheet(String(fd.get('owner')||''),String(fd.get('character')||''),c.id);
-      c.sheets[s.id]=s; saveState(); closeModal(); ui.role='player';ui.campaignId=c.id;ui.sheetId=s.id;renderSheet();return;
+      c.sheets[s.id]=s; saveState(); closeModal(); ui.role='player';ui.campaignId=c.id;ui.sheetId=s.id;ui.sheetMode='edit';renderSheet();return;
     }
     if (form.id === 'master-create-sheet-form') {
       const c=campaign(); if(!c) return;
       const s=newSheet(String(fd.get('owner')||''),String(fd.get('character')||''),c.id);
-      c.sheets[s.id]=s; saveState(); closeModal(); ui.role='master';ui.sheetId=s.id;renderSheet();return;
+      c.sheets[s.id]=s; saveState(); closeModal(); ui.role='master';ui.sheetId=s.id;ui.sheetMode='edit';renderSheet();return;
     }
     if (form.id === 'create-table-form') {
       reloadState();
