@@ -6,6 +6,7 @@
   const app = document.querySelector('#app');
   const modalRoot = document.querySelector('#modal-root');
   const toastRoot = document.querySelector('#toast-root');
+  const syncChannel = 'BroadcastChannel' in window ? new BroadcastChannel('fichas-daemon-sync-v1') : null;
 
   const ATTRIBUTES = [
     ['con', 'Constituição'], ['fr', 'Força'], ['dex', 'Destreza'], ['agi', 'Agilidade'],
@@ -63,6 +64,24 @@
 
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    syncChannel?.postMessage({ type: 'state-updated', at: Date.now() });
+  }
+
+  function reloadState() {
+    state = loadState();
+    return state;
+  }
+
+  function renderCurrentViewAfterSync() {
+    reloadState();
+    if (ui.role === 'master') {
+      if (ui.campaignId && state.campaigns[ui.campaignId]) return renderMasterDashboard();
+      return renderMasterLobby();
+    }
+    if (ui.role === 'player') {
+      if (ui.campaignId && ui.sheetId && state.campaigns[ui.campaignId]?.sheets?.[ui.sheetId]) return renderSheet();
+      return renderPlayerLobby();
+    }
   }
 
   function defaultRules() {
@@ -212,6 +231,7 @@
   }
 
   function renderPlayerLobby() {
+    reloadState();
     ui.role = 'player';
     const sheets = mySheets();
     app.innerHTML = `
@@ -240,6 +260,7 @@
   }
 
   function renderMasterLobby() {
+    reloadState();
     ui.role = 'master';
     const campaigns = Object.values(state.campaigns).sort((a,b) => b.createdAt - a.createdAt);
     app.innerHTML = `
@@ -267,7 +288,6 @@
   function renderSheet() {
     const c = campaign(); const s = sheet();
     if (!c || !s) return renderPlayerLobby();
-    s.updatedAt = Date.now(); saveState();
     app.innerHTML = `
       <div class="shell">
         ${topbar(c.name)}
@@ -372,7 +392,7 @@
         <main class="content">
           <div class="page-head">
             <div><div class="eyebrow">Painel do mestre</div><h1 class="page-title">${esc(c.name)}</h1><p class="page-copy">Mestre ${esc(c.masterName)} · ${sheets.length} ficha(s) na mesa.</p></div>
-            <div class="flex gap8"><button class="btn ghost" data-action="master-home">Minhas mesas</button><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Convite ${esc(c.code)}</button></div>
+            <div class="flex gap8 wrap"><button class="btn ghost" data-action="master-home">Minhas mesas</button><button class="btn" data-action="master-create-sheet">+ Criar ficha</button><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Convite ${esc(c.code)}</button></div>
           </div>
           <div class="master-layout">
             <nav class="master-nav">
@@ -398,7 +418,7 @@
   }
 
   function renderPlayers(c,sheets,full=false) {
-    if (!sheets.length) return `<div class="empty"><strong>Ninguém entrou ainda.</strong>Compartilhe o código <span class="mono gold">${esc(c.code)}</span> com a mesa.</div>`;
+    if (!sheets.length) return `<div class="empty"><strong>Ninguém entrou ainda.</strong>Compartilhe o código <span class="mono gold">${esc(c.code)}</span> ou crie uma ficha manualmente para testar o sistema.<div class="mt16"><button class="btn primary" data-action="master-create-sheet">+ Criar primeira ficha</button></div></div>`;
     return `<div class="player-grid">${sheets.map(s => {
       const pct = Math.max(0,Math.min(100,(s.combat.hp/Math.max(1,s.combat.hpMax))*100));
       return `<article class="player-card"><div class="player-card-head"><div><div class="player-name">${esc(s.name)}</div><div class="player-owner">Jogador: ${esc(s.ownerName)}</div></div><span class="pill ${pct<30?'red':pct<65?'gold':'green'}">${s.combat.hp}/${s.combat.hpMax} PV</span></div>
@@ -447,7 +467,13 @@
   }
 
   function openJoinTable() {
-    modal({ title:'Entrar em uma mesa', copy:'Use o código enviado pelo mestre e crie sua ficha.', body:`<form class="form" id="join-form"><div class="field"><label class="label">Código da mesa</label><input class="input mono" name="code" maxlength="6" autocomplete="off" placeholder="ABC123" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar ficha e entrar</button></form>` });
+    reloadState();
+    modal({ title:'Entrar em uma mesa', copy:'Use o código enviado pelo mestre e crie sua ficha.', body:`<form class="form" id="join-form"><div class="field"><label class="label">Código da mesa</label><input class="input mono" name="code" maxlength="6" autocomplete="off" placeholder="ABC123" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar ficha e entrar</button><div class="hint">Se a mesa acabou de ser criada em outra aba deste navegador, ela agora é atualizada automaticamente.</div></form>` });
+  }
+
+  function openMasterCreateSheet() {
+    const c = campaign(); if (!c) return;
+    modal({ title:'Criar ficha na mesa', copy:'Cadastre um personagem manualmente para testar ou preparar a mesa antes dos jogadores entrarem.', body:`<form class="form" id="master-create-sheet-form"><div class="field"><label class="label">Nome do jogador</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar e abrir ficha</button></form>` });
   }
 
   function openCreateTable() {
@@ -455,6 +481,7 @@
   }
 
   function openMasterLogin(campaignId) {
+    reloadState();
     const c = state.campaigns[campaignId]; if (!c) return;
     modal({ title:`Abrir ${esc(c.name)}`, copy:'Digite o PIN definido quando a mesa foi criada.', body:`<form class="form" id="master-login-form" data-campaign="${c.id}"><div class="field"><label class="label">PIN do mestre</label><input class="input mono" name="pin" type="password" inputmode="numeric" required autofocus></div><button class="btn primary" type="submit">Abrir painel</button></form>` });
   }
@@ -502,6 +529,7 @@
     if (action === 'master-home') return renderMasterLobby();
     if (action === 'join-table') return openJoinTable();
     if (action === 'create-table') return openCreateTable();
+    if (action === 'master-create-sheet') return openMasterCreateSheet();
     if (action === 'copy-code') { navigator.clipboard?.writeText(el.dataset.code); toast(`Código ${el.dataset.code} copiado.`); return; }
     if (action === 'master-login') return openMasterLogin(el.dataset.campaign);
     if (action === 'open-sheet') { ui.campaignId=el.dataset.campaign; ui.sheetId=el.dataset.sheet; ui.role='player'; return renderSheet(); }
@@ -544,13 +572,20 @@
     const fd = new FormData(form);
 
     if (form.id === 'join-form') {
+      reloadState();
       const code=String(fd.get('code')||'').trim().toUpperCase();
-      const c=Object.values(state.campaigns).find(x=>x.code===code);
-      if(!c){toast('Mesa não encontrada com esse código.');return;}
+      const c=Object.values(state.campaigns).find(x=>String(x.code||'').toUpperCase()===code);
+      if(!c){toast('Mesa não encontrada. Atualize a página do mestre e confirme o código.');return;}
       const s=newSheet(String(fd.get('owner')||''),String(fd.get('character')||''),c.id);
       c.sheets[s.id]=s; saveState(); closeModal(); ui.role='player';ui.campaignId=c.id;ui.sheetId=s.id;renderSheet();return;
     }
+    if (form.id === 'master-create-sheet-form') {
+      const c=campaign(); if(!c) return;
+      const s=newSheet(String(fd.get('owner')||''),String(fd.get('character')||''),c.id);
+      c.sheets[s.id]=s; saveState(); closeModal(); ui.role='master';ui.sheetId=s.id;renderSheet();return;
+    }
     if (form.id === 'create-table-form') {
+      reloadState();
       const c=newCampaign(String(fd.get('name')||''),String(fd.get('master')||''),String(fd.get('pin')||''));
       state.campaigns[c.id]=c;saveState();closeModal();ui.role='master';ui.campaignId=c.id;ui.masterTab='overview';renderMasterDashboard();return;
     }
@@ -586,6 +621,19 @@
   });
 
   window.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
+
+  window.addEventListener('storage', e => {
+    if (e.key === STORAGE_KEY) renderCurrentViewAfterSync();
+  });
+  syncChannel?.addEventListener('message', e => {
+    if (e.data?.type === 'state-updated') renderCurrentViewAfterSync();
+  });
+  window.addEventListener('focus', () => {
+    if (ui.role) renderCurrentViewAfterSync();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && ui.role) renderCurrentViewAfterSync();
+  });
 
   renderHub();
 })();
