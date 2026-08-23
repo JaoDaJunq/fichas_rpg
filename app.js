@@ -8,6 +8,282 @@
   const toastRoot = document.querySelector('#toast-root');
   const syncChannel = 'BroadcastChannel' in window ? new BroadcastChannel('fichas-daemon-sync-v1') : null;
 
+
+  // =========================================================
+  // SUPABASE / MODO ONLINE
+  // =========================================================
+  const SUPABASE_CONFIG = window.DAEMON_SUPABASE_CONFIG || {};
+  const online = {
+    enabled: Boolean(SUPABASE_CONFIG.url && SUPABASE_CONFIG.publishableKey && window.supabase?.createClient),
+    client: null,
+    user: null,
+    ready: false,
+    error: null,
+    saveTimer: null,
+    refreshTimer: null,
+    pendingRefresh: false,
+    channel: null
+  };
+
+  function currentOwnerId() {
+    return online.user?.id || deviceId();
+  }
+
+  function onlineStatusLabel() {
+    if (online.ready) return '● Online · mesa sincronizada pelo Supabase';
+    if (online.enabled && online.error) return `● Supabase indisponível: ${online.error}`;
+    if (online.enabled) return '● Conectando ao Supabase…';
+    return '● Modo local';
+  }
+
+  function requireOnline() {
+    if (!online.enabled) return true;
+    if (online.ready) return true;
+    toast(online.error ? `Supabase: ${online.error}` : 'Ainda conectando ao Supabase. Tente novamente em alguns segundos.');
+    return false;
+  }
+
+  function isUuid(value) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+  }
+
+  function toServerSheetData(s) {
+    const data = cloneJson(s || {});
+    // Estes campos são reconstruídos a partir das colunas protegidas do banco.
+    delete data.id;
+    delete data.campaignId;
+    delete data.ownerDeviceId;
+    delete data.isLocked;
+    return data;
+  }
+
+  function sheetRow(s, roomId) {
+    normalizeSheet(s);
+    return {
+      room_id: roomId,
+      owner_id: s.ownerDeviceId || currentOwnerId(),
+      name: s.name || 'Novo personagem',
+      level: Math.max(1, Number(String(s.level || '').match(/\d+/)?.[0] || 1)),
+      hp_current: Math.max(0, Number(s.combat?.hp) || 0),
+      hp_max: Math.max(0, Number(s.combat?.hpMax) || 0),
+      hero_points: Math.max(0, Number(s.reserves?.heroPoints) || 0),
+      magic_points: Math.max(0, Number(s.reserves?.magicPoints) || 0),
+      skill_points: Math.max(0, Number(s.reserves?.skillPoints) || 0),
+      upgrade_points: Math.max(0, Number(s.reserves?.upgradePoints) || 0),
+      sheet_data: toServerSheetData(s),
+      locked: Boolean(s.isLocked)
+    };
+  }
+
+  async function persistSheetOnline(s, roomId = ui.campaignId) {
+    if (!online.ready || !s || !roomId || !isUuid(s.id)) return;
+    const row = sheetRow(s, roomId);
+    const { error } = await online.client.from('characters').update(row).eq('id', s.id);
+    if (error) console.error('Falha ao sincronizar ficha:', error);
+  }
+
+  async function persistRoomOnline(c) {
+    if (!online.ready || !c?.id || !c.isMaster) return;
+    const { error } = await online.client.from('rooms').update({ rules: c.rules || {} }).eq('id', c.id);
+    if (error) console.error('Falha ao sincronizar regras:', error);
+  }
+
+  function scheduleOnlinePersist() {
+    if (!online.ready) return;
+    clearTimeout(online.saveTimer);
+    online.saveTimer = setTimeout(async () => {
+      const c = campaign();
+      const s = sheet();
+      try {
+        if (c?.isMaster) await persistRoomOnline(c);
+        if (s) await persistSheetOnline(s, c?.id);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 300);
+  }
+
+  async function saveOnlineRoll(log, s) {
+    if (!online.ready || !log || !s || !ui.campaignId || !isUuid(s.id)) return;
+    const { error } = await online.client.from('rolls').insert({
+      room_id: ui.campaignId,
+      character_id: s.id,
+      user_id: online.user.id,
+      label: log.label,
+      target: Number(log.target) || 0,
+      result: Number(log.roll) || 0,
+      outcome: log.result || ''
+    });
+    if (error) console.error('Falha ao salvar rolagem:', error);
+  }
+
+  async function createOnlineCharacter(roomId, ownerName, characterName, ownerId = online.user?.id) {
+    if (!online.ready || !roomId || !ownerId) throw new Error('Supabase não conectado.');
+    const draft = newSheet(ownerName, characterName, roomId);
+    draft.ownerDeviceId = ownerId;
+    const row = sheetRow(draft, roomId);
+    const { data, error } = await online.client
+      .from('characters')
+      .insert(row)
+      .select('id')
+      .single();
+    if (error) throw error;
+    return data.id;
+  }
+
+  async function hydrateOnlineState() {
+    if (!online.ready) return state;
+
+    const { data: rooms, error: roomError } = await online.client
+      .from('rooms')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (roomError) throw roomError;
+
+    const ids = (rooms || []).map(r => r.id);
+    let members = [], chars = [], rolls = [];
+    if (ids.length) {
+      const [m, ch, ro] = await Promise.all([
+        online.client.from('room_members').select('*').in('room_id', ids),
+        online.client.from('characters').select('*').in('room_id', ids).order('updated_at', { ascending: false }),
+        online.client.from('rolls').select('*').in('room_id', ids).order('created_at', { ascending: false }).limit(200)
+      ]);
+      if (m.error) throw m.error;
+      if (ch.error) throw ch.error;
+      if (ro.error) throw ro.error;
+      members = m.data || [];
+      chars = ch.data || [];
+      rolls = ro.data || [];
+    }
+
+    const next = freshState();
+    const memberMap = new Map();
+    members.forEach(m => memberMap.set(`${m.room_id}:${m.user_id}`, m));
+
+    (rooms || []).forEach(r => {
+      const masterMember = members.find(m => m.room_id === r.id && m.role === 'master');
+      next.campaigns[r.id] = {
+        id: r.id,
+        name: r.name,
+        code: r.invite_code,
+        masterName: masterMember?.display_name || 'Mestre',
+        masterPin: '',
+        masterId: r.master_id,
+        isMaster: r.master_id === online.user.id,
+        rules: { ...defaultRules(), ...(r.rules || {}) },
+        sheets: {},
+        logs: [],
+        createdAt: Date.parse(r.created_at || '') || Date.now()
+      };
+    });
+
+    chars.forEach(row => {
+      const c = next.campaigns[row.room_id];
+      if (!c) return;
+      const member = memberMap.get(`${row.room_id}:${row.owner_id}`);
+      const d = row.sheet_data && typeof row.sheet_data === 'object' ? cloneJson(row.sheet_data) : {};
+      const s = normalizeSheet({
+        ...d,
+        id: row.id,
+        campaignId: row.room_id,
+        ownerDeviceId: row.owner_id,
+        ownerName: d.ownerName || member?.display_name || 'Jogador',
+        name: row.name || d.name || 'Personagem',
+        level: d.level || String(row.level || 1),
+        isLocked: Boolean(row.locked),
+        createdAt: Date.parse(row.created_at || '') || Date.now(),
+        updatedAt: Date.parse(row.updated_at || '') || Date.now()
+      });
+      s.combat.hp = Number(row.hp_current ?? s.combat.hp ?? 0);
+      s.combat.hpMax = Number(row.hp_max ?? s.combat.hpMax ?? 0);
+      s.reserves.heroPoints = Number(row.hero_points ?? s.reserves.heroPoints ?? 0);
+      s.reserves.magicPoints = Number(row.magic_points ?? s.reserves.magicPoints ?? 0);
+      s.reserves.skillPoints = Number(row.skill_points ?? s.reserves.skillPoints ?? 0);
+      s.reserves.upgradePoints = Number(row.upgrade_points ?? s.reserves.upgradePoints ?? 0);
+      c.sheets[s.id] = s;
+    });
+
+    rolls.forEach(row => {
+      const c = next.campaigns[row.room_id];
+      if (!c) return;
+      const s = c.sheets[row.character_id];
+      c.logs.push({
+        id: String(row.id),
+        character: s?.name || 'Personagem',
+        label: row.label,
+        roll: row.result,
+        target: row.target,
+        result: row.outcome || '',
+        at: Date.parse(row.created_at || '') || Date.now()
+      });
+    });
+
+    state = normalizeStateShape(next);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return state;
+  }
+
+  function scheduleOnlineRefresh() {
+    if (!online.ready) return;
+    const active = document.activeElement;
+    if (active && ['INPUT','TEXTAREA','SELECT'].includes(active.tagName)) {
+      online.pendingRefresh = true;
+      return;
+    }
+    clearTimeout(online.refreshTimer);
+    online.refreshTimer = setTimeout(async () => {
+      try {
+        await hydrateOnlineState();
+        renderCurrentViewAfterSync();
+      } catch (err) {
+        console.error('Falha ao atualizar dados online:', err);
+      }
+    }, 180);
+  }
+
+  function subscribeOnline() {
+    if (!online.ready || online.channel) return;
+    online.channel = online.client
+      .channel(`fichas-daemon-${online.user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'characters' }, scheduleOnlineRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_members' }, scheduleOnlineRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, scheduleOnlineRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rolls' }, scheduleOnlineRefresh)
+      .subscribe();
+  }
+
+  async function bootOnline() {
+    app.innerHTML = `<main class="hub"><div class="hub-panel"><div class="brand-mark big">D</div><h1 class="hub-title">Fichas Daemon</h1><p class="hub-copy">Conectando a mesa online…</p></div></main>`;
+    if (!online.enabled) {
+      renderHub();
+      return;
+    }
+    try {
+      online.client = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.publishableKey, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+      });
+      let { data: { session }, error } = await online.client.auth.getSession();
+      if (error) throw error;
+      if (!session) {
+        const signed = await online.client.auth.signInAnonymously();
+        if (signed.error) throw signed.error;
+        session = signed.data.session;
+      }
+      online.user = session?.user || null;
+      if (!online.user) throw new Error('Não foi possível criar a sessão anônima.');
+      online.ready = true;
+      await hydrateOnlineState();
+      subscribeOnline();
+      renderHub();
+    } catch (err) {
+      online.error = err?.message || String(err);
+      online.ready = false;
+      console.error('Supabase:', err);
+      renderHub();
+      setTimeout(() => toast(`Supabase: ${online.error}. Confira se Anonymous Sign-Ins está ativado.`), 250);
+    }
+  }
+
   const ATTRIBUTES = [
     ['con', 'Constituição'], ['fr', 'Força'], ['dex', 'Destreza'], ['agi', 'Agilidade'],
     ['int', 'Inteligência'], ['will', 'Força de Vontade'], ['per', 'Percepção'], ['car', 'Carisma']
@@ -102,9 +378,11 @@
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     syncChannel?.postMessage({ type: 'state-updated', at: Date.now() });
+    scheduleOnlinePersist();
   }
 
   function reloadState() {
+    if (online.ready) return state;
     state = normalizeStateShape(loadState());
     return state;
   }
@@ -140,7 +418,7 @@
     return {
       id,
       campaignId,
-      ownerDeviceId: deviceId(),
+      ownerDeviceId: currentOwnerId(),
       ownerName: ownerName || 'Jogador',
       name: characterName || 'Novo personagem',
       concept: '',
@@ -409,7 +687,7 @@
       copy:'Escolha um arquivo .json ou cole o conteúdo. A ficha aberta será atualizada, mas continuará pertencendo à mesa e ao usuário atuais.',
       body:`<form class="form" id="json-import-form">
         <div class="field"><label class="label">Arquivo JSON</label><input class="input" id="json-file-input" type="file" accept=".json,application/json"></div>
-        <div class="json-drop-note">O arquivo fica somente no seu navegador. Nada é enviado para servidor.</div>
+        <div class="json-drop-note">O arquivo é lido no seu navegador. Depois da importação, os dados da ficha são sincronizados com a mesa online.</div>
         <div class="field"><label class="label">Ou cole o JSON</label><textarea class="textarea json-textarea" id="json-import-text" name="json" placeholder='{"schema":"fichas-daemon-character", ...}'></textarea></div>
         <label class="json-check"><input type="checkbox" name="importOwner" value="1"> Também importar o nome do jogador</label>
         <div class="json-warning"><strong>Atenção:</strong> campos presentes no JSON substituem os dados equivalentes da ficha atual.</div>
@@ -786,7 +1064,7 @@
               <span class="role-go">GERENCIAR →</span>
             </button>
           </div>
-          <div class="hub-foot">Os dados deste protótipo ficam salvos neste navegador.</div>
+          <div class="hub-foot">${esc(onlineStatusLabel())}</div>
         </div>
       </main>`;
   }
@@ -795,7 +1073,7 @@
     const result = [];
     Object.values(state.campaigns).forEach(c => {
       Object.values(c.sheets || {}).forEach(s => {
-        if (s.ownerDeviceId === deviceId()) result.push({ campaign: c, sheet: s });
+        if (s.ownerDeviceId === currentOwnerId()) result.push({ campaign: c, sheet: s });
       });
     });
     return result.sort((a,b) => b.sheet.updatedAt - a.sheet.updatedAt);
@@ -810,7 +1088,7 @@
         ${topbar('Área do jogador')}
         <main class="content">
           <div class="page-head">
-            <div><div class="eyebrow">Área do jogador</div><h1 class="page-title">Suas fichas</h1><p class="page-copy">Continue um personagem ou entre em uma nova mesa.</p></div>
+            <div><div class="eyebrow">Área do jogador</div><h1 class="page-title">Suas fichas</h1><p class="page-copy">Continue um personagem sincronizado ou entre em uma nova mesa pelo código.</p></div>
             <button class="btn primary" data-action="join-table">+ Entrar em mesa</button>
           </div>
           ${sheets.length ? `<div class="grid two">${sheets.map(({campaign:c,sheet:s}) => `
@@ -825,7 +1103,7 @@
                 <div class="flex gap8 wrap"><button class="btn primary small" data-action="open-sheet" data-mode="play" data-campaign="${c.id}" data-sheet="${s.id}">Jogar</button><button class="btn small" data-action="open-sheet" data-mode="edit" data-campaign="${c.id}" data-sheet="${s.id}">Editar</button></div>
               </div>
             </article>`).join('')}</div>` : `
-            <div class="empty"><strong>Nenhuma ficha neste navegador.</strong>Entre em uma mesa pelo código de convite para criar seu primeiro personagem.<div class="mt16"><button class="btn primary" data-action="join-table">Entrar em mesa</button></div></div>`}
+            <div class="empty"><strong>Você ainda não possui uma ficha online.</strong>Entre em uma mesa pelo código de convite para criar seu primeiro personagem.<div class="mt16"><button class="btn primary" data-action="join-table">Entrar em mesa</button></div></div>`}
         </main>
       </div>`;
   }
@@ -833,13 +1111,13 @@
   function renderMasterLobby() {
     reloadState();
     ui.role = 'master';
-    const campaigns = Object.values(state.campaigns).sort((a,b) => b.createdAt - a.createdAt);
+    const campaigns = Object.values(state.campaigns).filter(c => !online.ready || c.isMaster).sort((a,b) => b.createdAt - a.createdAt);
     app.innerHTML = `
       <div class="shell">
         ${topbar('Área do mestre')}
         <main class="content">
           <div class="page-head">
-            <div><div class="eyebrow">Área do mestre</div><h1 class="page-title">Suas mesas</h1><p class="page-copy">Abra uma mesa existente ou crie uma nova campanha.</p></div>
+            <div><div class="eyebrow">Área do mestre</div><h1 class="page-title">Suas mesas</h1><p class="page-copy">Abra uma mesa online existente ou crie uma nova campanha.</p></div>
             <button class="btn primary" data-action="create-table">+ Criar mesa</button>
           </div>
           ${campaigns.length ? `<div class="grid two">${campaigns.map(c => `
@@ -1254,29 +1532,41 @@
     if (roll > c.rules.autoFailAbove || roll > target) { result = 'Falha'; cls='fail'; }
     if (roll <= criticalIndex) { result = 'Crítico'; cls='critical'; }
     if (!c.logs) c.logs=[];
-    c.logs.unshift({ id:uid('roll'), character:s.name, label, roll, target, result, at:Date.now() });
+    const log = { id:uid('roll'), character:s.name, label, roll, target, result, at:Date.now() };
+    c.logs.unshift(log);
     c.logs = c.logs.slice(0,100);
     saveState();
+    saveOnlineRoll(log, s);
     modalRoot.innerHTML = `<div class="roll-overlay" data-close-modal><div class="roll-card" onclick="event.stopPropagation()"><div class="eyebrow">1d100</div><h2 class="roll-title">${esc(label)}</h2><div class="d100">${roll}</div><div class="roll-result ${cls}">${result}</div><div class="roll-info">Alvo ${target}% · crítico até ${criticalIndex} · falha automática acima de ${c.rules.autoFailAbove}.</div><button class="btn primary w100" data-close-modal>Fechar</button></div></div>`;
   }
 
   function openJoinTable() {
     reloadState();
-    modal({ title:'Entrar em uma mesa', copy:'Use o código enviado pelo mestre e crie sua ficha.', body:`<form class="form" id="join-form"><div class="field"><label class="label">Código da mesa</label><input class="input mono" name="code" maxlength="6" autocomplete="off" placeholder="ABC123" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar ficha e entrar</button><div class="hint">Se a mesa acabou de ser criada em outra aba deste navegador, ela agora é atualizada automaticamente.</div></form>` });
+    modal({ title:'Entrar em uma mesa', copy:'Use o código enviado pelo mestre. Sua ficha será criada diretamente na mesa online.', body:`<form class="form" id="join-form"><div class="field"><label class="label">Código da mesa</label><input class="input mono" name="code" maxlength="6" autocomplete="off" placeholder="ABC123" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar ficha e entrar</button><div class="hint">Pode abrir em outro celular ou computador: todos usam a mesma mesa do Supabase.</div></form>` });
   }
 
   function openMasterCreateSheet() {
     const c = campaign(); if (!c) return;
-    modal({ title:'Criar ficha na mesa', copy:'Cadastre um personagem manualmente para testar ou preparar a mesa antes dos jogadores entrarem.', body:`<form class="form" id="master-create-sheet-form"><div class="field"><label class="label">Nome do jogador</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar e abrir ficha</button></form>` });
+    modal({ title:'Criar ficha na mesa', copy:'Cria uma ficha vinculada à conta do mestre. Para uma ficha realmente pertencente ao jogador, prefira que ele entre pelo código da mesa.', body:`<form class="form" id="master-create-sheet-form"><div class="field"><label class="label">Nome do jogador</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar e abrir ficha</button></form>` });
   }
 
   function openCreateTable() {
-    modal({ title:'Criar uma mesa', copy:'Você recebe um código para compartilhar com os jogadores.', body:`<form class="form" id="create-table-form"><div class="field"><label class="label">Nome da mesa</label><input class="input" name="name" placeholder="Ex.: Ecos de Arkanun" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="master" placeholder="Ex.: Kauan" required></div><div class="field"><label class="label">PIN do mestre</label><input class="input mono" name="pin" type="password" inputmode="numeric" minlength="4" maxlength="10" placeholder="4 ou mais números" required><div class="hint">Usado para abrir o painel desta mesa neste protótipo.</div></div><button class="btn primary" type="submit">Criar mesa</button></form>` });
+    if (online.enabled && !requireOnline()) return;
+    if (online.ready) {
+      modal({ title:'Criar uma mesa', copy:'A mesa será criada no Supabase e receberá um código único para compartilhar.', body:`<form class="form" id="create-table-form"><div class="field"><label class="label">Nome da mesa</label><input class="input" name="name" placeholder="Ex.: Ecos de Arkanun" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="master" placeholder="Ex.: João" required></div><button class="btn primary" type="submit">Criar mesa online</button></form>` });
+      return;
+    }
+    modal({ title:'Criar uma mesa', copy:'Modo local de compatibilidade.', body:`<form class="form" id="create-table-form"><div class="field"><label class="label">Nome da mesa</label><input class="input" name="name" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="master" required></div><div class="field"><label class="label">PIN do mestre</label><input class="input mono" name="pin" type="password" value="1234" required></div><button class="btn primary" type="submit">Criar mesa</button></form>` });
   }
 
   function openMasterLogin(campaignId) {
     reloadState();
     const c = state.campaigns[campaignId]; if (!c) return;
+    if (online.ready) {
+      if (!c.isMaster) { toast('Esta mesa não pertence a esta sessão de mestre.'); return; }
+      ui.role='master'; ui.campaignId=c.id; ui.masterTab='overview'; renderMasterDashboard();
+      return;
+    }
     modal({ title:`Abrir ${esc(c.name)}`, copy:'Digite o PIN definido quando a mesa foi criada.', body:`<form class="form" id="master-login-form" data-campaign="${c.id}"><div class="field"><label class="label">PIN do mestre</label><input class="input mono" name="pin" type="password" inputmode="numeric" required autofocus></div><button class="btn primary" type="submit">Abrir painel</button></form>` });
   }
 
@@ -1381,7 +1671,7 @@
     if (action === 'reset-rules') { campaign().rules=defaultRules(); saveState(); toast('Regras restauradas.'); return renderMasterDashboard(); }
   });
 
-  document.addEventListener('submit', e => {
+  document.addEventListener('submit', async e => {
     const form = e.target;
     if (!(form instanceof HTMLFormElement)) return;
     e.preventDefault();
@@ -1400,21 +1690,58 @@
     }
 
     if (form.id === 'join-form') {
-      reloadState();
       const code=String(fd.get('code')||'').trim().toUpperCase();
+      const owner=String(fd.get('owner')||'').trim();
+      const character=String(fd.get('character')||'').trim();
+      if (online.ready) {
+        try {
+          const { data, error } = await online.client.rpc('join_room_by_code', { _invite_code: code, _display_name: owner });
+          if (error) throw error;
+          const joined = Array.isArray(data) ? data[0] : data;
+          if (!joined?.room_id) throw new Error('Mesa não encontrada.');
+          const characterId = await createOnlineCharacter(joined.room_id, owner, character, online.user.id);
+          await hydrateOnlineState();
+          closeModal(); ui.role='player';ui.campaignId=joined.room_id;ui.sheetId=characterId;ui.sheetMode='edit';renderSheet();
+        } catch (err) { toast(`Não consegui entrar: ${err?.message || err}`); }
+        return;
+      }
+      if (online.enabled && !requireOnline()) return;
+      reloadState();
       const c=Object.values(state.campaigns).find(x=>String(x.code||'').toUpperCase()===code);
-      if(!c){toast('Mesa não encontrada. Atualize a página do mestre e confirme o código.');return;}
-      const s=newSheet(String(fd.get('owner')||''),String(fd.get('character')||''),c.id);
+      if(!c){toast('Mesa não encontrada.');return;}
+      const s=newSheet(owner,character,c.id);
       c.sheets[s.id]=s; saveState(); closeModal(); ui.role='player';ui.campaignId=c.id;ui.sheetId=s.id;ui.sheetMode='edit';renderSheet();return;
     }
     if (form.id === 'master-create-sheet-form') {
       const c=campaign(); if(!c) return;
-      const s=newSheet(String(fd.get('owner')||''),String(fd.get('character')||''),c.id);
+      const owner=String(fd.get('owner')||''); const character=String(fd.get('character')||'');
+      if (online.ready) {
+        try {
+          const characterId = await createOnlineCharacter(c.id, owner, character, online.user.id);
+          await hydrateOnlineState();
+          closeModal(); ui.role='master';ui.sheetId=characterId;ui.sheetMode='edit';renderSheet();
+        } catch (err) { toast(`Não consegui criar a ficha: ${err?.message || err}`); }
+        return;
+      }
+      const s=newSheet(owner,character,c.id);
       c.sheets[s.id]=s; saveState(); closeModal(); ui.role='master';ui.sheetId=s.id;ui.sheetMode='edit';renderSheet();return;
     }
     if (form.id === 'create-table-form') {
+      const name=String(fd.get('name')||'').trim(); const master=String(fd.get('master')||'').trim();
+      if (online.ready) {
+        try {
+          const { data, error } = await online.client.rpc('create_room', { _name: name, _display_name: master });
+          if (error) throw error;
+          const created = Array.isArray(data) ? data[0] : data;
+          if (!created?.room_id) throw new Error('A mesa não retornou um ID.');
+          await hydrateOnlineState();
+          closeModal(); ui.role='master';ui.campaignId=created.room_id;ui.masterTab='overview';renderMasterDashboard();
+        } catch (err) { toast(`Não consegui criar a mesa: ${err?.message || err}`); }
+        return;
+      }
+      if (online.enabled && !requireOnline()) return;
       reloadState();
-      const c=newCampaign(String(fd.get('name')||''),String(fd.get('master')||''),String(fd.get('pin')||''));
+      const c=newCampaign(name,master,String(fd.get('pin')||''));
       state.campaigns[c.id]=c;saveState();closeModal();ui.role='master';ui.campaignId=c.id;ui.masterTab='overview';renderMasterDashboard();return;
     }
     if (form.id === 'master-login-form') {
@@ -1445,10 +1772,10 @@
       const s=sheet(); ['hpMax','initiative','defense','armor','damageBonus'].forEach(k=>s.combat[k]=Number(fd.get(k))||0);s.combat.hp=Math.min(s.combat.hp,s.combat.hpMax);saveState();closeModal();renderSheet();return;
     }
     if (form.id === 'give-points-form') {
-      const c=campaign(); const s=c.sheets[form.dataset.sheet]; const type=fd.get('type'); const amount=Math.max(1,Number(fd.get('amount'))||1); s.reserves[type]=(s.reserves[type]||0)+amount;saveState();closeModal();toast(`${amount} ponto(s) concedido(s) a ${s.name}.`);renderMasterDashboard();return;
+      const c=campaign(); const s=c.sheets[form.dataset.sheet]; const type=fd.get('type'); const amount=Math.max(1,Number(fd.get('amount'))||1); s.reserves[type]=(s.reserves[type]||0)+amount;saveState(); if(online.ready) await persistSheetOnline(s,c.id); closeModal();toast(`${amount} ponto(s) concedido(s) a ${s.name}.`);renderMasterDashboard();return;
     }
     if (form.id === 'master-hp-form') {
-      const s=campaign().sheets[form.dataset.sheet];s.combat.hpMax=Math.max(1,Number(fd.get('hpMax'))||1);s.combat.hp=Math.max(0,Math.min(s.combat.hpMax,Number(fd.get('hp'))||0));saveState();closeModal();renderMasterDashboard();return;
+      const c=campaign(); const s=c.sheets[form.dataset.sheet];s.combat.hpMax=Math.max(1,Number(fd.get('hpMax'))||1);s.combat.hp=Math.max(0,Math.min(s.combat.hpMax,Number(fd.get('hp'))||0));saveState(); if(online.ready) await persistSheetOnline(s,c.id); closeModal();renderMasterDashboard();return;
     }
   });
 
@@ -1499,11 +1826,19 @@
     if (e.data?.type === 'state-updated') renderCurrentViewAfterSync();
   });
   window.addEventListener('focus', () => {
-    if (ui.role) renderCurrentViewAfterSync();
+    if (!ui.role) return;
+    if (online.ready) scheduleOnlineRefresh(); else renderCurrentViewAfterSync();
   });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && ui.role) renderCurrentViewAfterSync();
+    if (!document.hidden && ui.role) { if (online.ready) scheduleOnlineRefresh(); else renderCurrentViewAfterSync(); }
   });
 
-  renderHub();
+  document.addEventListener('focusout', () => {
+    if (online.pendingRefresh) {
+      online.pendingRefresh = false;
+      setTimeout(scheduleOnlineRefresh, 80);
+    }
+  });
+
+  bootOnline();
 })();

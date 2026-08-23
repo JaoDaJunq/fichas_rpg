@@ -706,3 +706,6 @@ a { color: inherit; }
   .json-toolbar { width:100%; display:grid; grid-template-columns:1fr 1fr; }
   .json-toolbar .btn:last-child { grid-column:1 / -1; }
 }
+
+/* v8 online */
+.hub-foot{max-width:720px;margin:24px auto 0;text-align:center}.online-badge{font-family:'JetBrains Mono',monospace}
