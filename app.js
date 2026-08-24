@@ -30,7 +30,7 @@
   }
 
   function onlineStatusLabel() {
-    if (online.ready) return '● Online · Supabase · v9';
+    if (online.ready) return '● Online · Supabase · v10';
     if (online.enabled && online.error) return `● Supabase indisponível: ${online.error}`;
     if (online.enabled) return '● Conectando ao Supabase…';
     return '● Modo local';
@@ -162,17 +162,21 @@
     members.forEach(m => memberMap.set(`${m.room_id}:${m.user_id}`, m));
 
     (rooms || []).forEach(r => {
-      const masterMember = members.find(m => m.room_id === r.id && m.role === 'master');
+      const roomMembers = members.filter(m => m.room_id === r.id);
+      const masters = roomMembers.filter(m => m.role === 'master');
+      const primaryMaster = roomMembers.find(m => m.user_id === r.master_id) || masters[0];
+      const currentMember = roomMembers.find(m => m.user_id === online.user.id);
       next.campaigns[r.id] = {
         id: r.id,
         name: r.name,
         code: r.invite_code,
-        masterName: masterMember?.display_name || 'Mestre',
+        masterName: primaryMaster?.display_name || 'Mestre',
+        masterNames: masters.map(m => m.display_name || 'Mestre'),
         masterPin: '',
         masterId: r.master_id,
-        isMaster: r.master_id === online.user.id,
+        isMaster: r.master_id === online.user.id || currentMember?.role === 'master',
         rules: { ...defaultRules(), ...(r.rules || {}) },
-        members: members.filter(m => m.room_id === r.id),
+        members: roomMembers,
         sheets: {},
         logs: [],
         createdAt: Date.parse(r.created_at || '') || Date.now()
@@ -345,7 +349,7 @@
     if (!s) return s;
     const defaults = {
       title: '', race: '', sect: '', kit: '', level: '', fatalism: '', epicScale: '',
-      concept: '', age: '', profession: '', notes: ''
+      concept: '', age: '', profession: '', notes: '', photoData: ''
     };
     Object.entries(defaults).forEach(([key, value]) => { if (s[key] == null) s[key] = value; });
     s.attributes ||= {};
@@ -428,6 +432,7 @@
       concept: '',
       age: '',
       profession: '',
+      photoData: '',
       title: '',
       race: '',
       sect: '',
@@ -488,19 +493,82 @@
 
   function modal({ title, copy = '', body = '', actions = '' }) {
     modalRoot.innerHTML = `
-      <div class="modal-backdrop" data-close-modal>
-        <div class="modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+      <div class="modal-backdrop" data-modal-backdrop>
+        <div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}" data-modal-panel>
           <div class="modal-head">
             <div><h2 class="modal-title">${title}</h2>${copy ? `<p class="modal-copy">${copy}</p>` : ''}</div>
-            <button class="btn icon ghost" data-close-modal aria-label="Fechar">×</button>
+            <button type="button" class="modal-close" data-close-modal aria-label="Fechar janela">×</button>
           </div>
           ${body}
           ${actions ? `<div class="flex gap8 mt20">${actions}</div>` : ''}
         </div>
       </div>`;
+    requestAnimationFrame(() => {
+      const focusable = modalRoot.querySelector('input:not([type="hidden"]), textarea, select, button:not([data-close-modal])');
+      focusable?.focus?.({ preventScroll: true });
+    });
   }
 
   function closeModal() { modalRoot.innerHTML = ''; }
+
+  modalRoot.addEventListener('click', (event) => {
+    if (event.target.matches('[data-modal-backdrop]')) closeModal();
+  });
+
+
+  function renderCharacterAvatar(s, className = 'avatar') {
+    const name = s?.name || '?';
+    if (s?.photoData && String(s.photoData).startsWith('data:image/')) {
+      return `<span class="${className} has-photo"><img src="${esc(s.photoData)}" alt="Foto de ${esc(name)}"></span>`;
+    }
+    return `<span class="${className}">${esc(name.slice(0,1).toUpperCase())}</span>`;
+  }
+
+  function resizeCharacterPhoto(file, maxSize = 640, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+      if (!file || !String(file.type || '').startsWith('image/')) return reject(new Error('Escolha um arquivo de imagem.'));
+      if (file.size > 12 * 1024 * 1024) return reject(new Error('A imagem é muito grande. Use uma foto de até 12 MB.'));
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Não consegui ler a imagem.'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Formato de imagem não suportado.'));
+        img.onload = () => {
+          const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+          const width = Math.max(1, Math.round(img.width * scale));
+          const height = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function openAvatarModal() {
+    const s = sheet(); if (!s) return;
+    modal({
+      title: `Foto de ${esc(s.name)}`,
+      copy: 'É só pela roleplay mesmo 😎. A imagem é reduzida no navegador e salva junto da ficha.',
+      body: `<div class="avatar-modal-preview">${renderCharacterAvatar(s, 'avatar avatar-large')}</div>
+        <div class="field mt12"><label class="label">Escolher imagem</label><input class="input" id="character-photo-input" type="file" accept="image/*"></div>
+        <div class="hint">PNG, JPG, WEBP e fotos do celular funcionam. A imagem é comprimida antes de ir para o Supabase.</div>
+        ${s.photoData ? '<button type="button" class="btn danger mt12" data-action="remove-avatar">Remover foto</button>' : ''}`
+    });
+  }
+
+  function openRenameCharacter() {
+    const s = sheet(); if (!s) return;
+    modal({
+      title: 'Editar nome do personagem',
+      copy: 'O nome pode ser alterado depois da criação e será atualizado para jogador e mestre.',
+      body: `<form class="form" id="rename-character-form"><div class="field"><label class="label">Nome do personagem</label><input class="input" name="name" value="${esc(s.name)}" maxlength="80" required></div><button class="btn primary" type="submit">Salvar nome</button></form>`
+    });
+  }
 
   const JSON_SCHEMA = 'fichas-daemon-character';
   const JSON_VERSION = 1;
@@ -524,6 +592,7 @@
       concept: s.concept || '',
       age: s.age || '',
       profession: s.profession || '',
+      photoData: s.photoData || '',
       attributes: cloneJson(s.attributes || {}),
       skills: cloneJson(s.skills || []).map(sk => ({
         catalogId: sk.catalogId || '',
@@ -653,6 +722,7 @@
     const identityKeys = ['name','title','race','sect','kit','level','fatalism','epicScale','concept','age','profession','notes'];
     identityKeys.forEach(key => { if (data[key] != null) s[key] = String(data[key]); });
     if (importOwner && data.ownerName != null) s.ownerName = String(data.ownerName);
+    if (data.photoData != null && String(data.photoData).startsWith('data:image/')) s.photoData = String(data.photoData);
 
     if (data.attributes && typeof data.attributes === 'object') {
       Object.entries(data.attributes).forEach(([key, value]) => {
@@ -1098,14 +1168,16 @@
     ui.role = 'player';
     const sheets = mySheets();
     const waitingRooms = myWaitingRooms();
+    const masterRooms = Object.values(state.campaigns).filter(c => c.isMaster);
     app.innerHTML = `
       <div class="shell">
         ${topbar('Área do jogador')}
         <main class="content">
           <div class="page-head">
             <div><div class="eyebrow">Área do jogador</div><h1 class="page-title">Suas fichas</h1><p class="page-copy">Entre na mesa pelo código. O mestre pode deixar sua ficha pronta e vinculá-la a você.</p></div>
-            <button class="btn primary" data-action="join-table">+ Entrar em mesa</button>
+            <div class="flex gap8 wrap"><button class="btn ghost" data-action="go-hub">← Início</button><button class="btn primary" data-action="join-table">+ Entrar em mesa</button></div>
           </div>
+          ${masterRooms.length ? `<div class="card master-access-card mb16"><div><div class="eyebrow">Acesso de mestre</div><strong>Você também é mestre em ${masterRooms.length} mesa(s).</strong></div><div class="flex gap8 wrap">${masterRooms.map(c => `<button class="btn primary small" data-action="open-master-room" data-campaign="${c.id}">Abrir ${esc(c.name)}</button>`).join('')}</div></div>` : ''}
           ${waitingRooms.length ? `<div class="grid two mb16">${waitingRooms.map(c => `
             <article class="card gold-edge">
               <div class="flex between center gap12"><div><div class="eyebrow">Aguardando ficha</div><h2 class="card-title">${esc(c.name)}</h2><p class="card-copy">Você já entrou na mesa. O mestre só precisa vincular seu personagem.</p></div><span class="pill gold">Aguardando</span></div>
@@ -1115,7 +1187,7 @@
           ${sheets.length ? `<div class="grid two">${sheets.map(({campaign:c,sheet:s}) => `
             <article class="card gold-edge">
               <div class="flex between center gap12">
-                <div><h2 class="card-title">${esc(s.name)}</h2><p class="card-copy">${esc(c.name)} · Mestre ${esc(c.masterName)}</p></div>
+                <div class="card-character-head">${renderCharacterAvatar(s, 'mini-avatar')}<div><h2 class="card-title">${esc(s.name)}</h2><p class="card-copy">${esc(c.name)} · Mestre ${esc(c.masterName)}</p></div></div>
                 <span class="pill">${Math.max(0,s.combat.hp)}/${s.combat.hpMax} PV</span>
               </div>
               <div class="sep"></div>
@@ -1139,12 +1211,12 @@
         <main class="content">
           <div class="page-head">
             <div><div class="eyebrow">Área do mestre</div><h1 class="page-title">Suas mesas</h1><p class="page-copy">Abra uma mesa online existente ou crie uma nova campanha.</p></div>
-            <button class="btn primary" data-action="create-table">+ Criar mesa</button>
+            <div class="flex gap8 wrap"><button class="btn ghost" data-action="go-hub">← Início</button><button class="btn primary" data-action="create-table">+ Criar mesa</button></div>
           </div>
           ${campaigns.length ? `<div class="grid two">${campaigns.map(c => `
             <article class="card">
               <div class="flex between center gap12">
-                <div><h2 class="card-title">${esc(c.name)}</h2><p class="card-copy">Mestre ${esc(c.masterName)}</p></div>
+                <div><h2 class="card-title">${esc(c.name)}</h2><p class="card-copy">Mestres ${esc((c.masterNames?.length ? c.masterNames : [c.masterName]).join(', '))}</p></div>
                 <span class="pill gold">${Object.keys(c.sheets || {}).length} fichas</span>
               </div>
               <div class="code-box mt16"><div><div class="small-text muted">Código de convite</div><div class="code">${esc(c.code)}</div></div><button class="btn small" data-action="copy-code" data-code="${esc(c.code)}">Copiar</button></div>
@@ -1171,8 +1243,8 @@
 
   function renderSheetBackButton() {
     return ui.role === 'master'
-      ? '<button class="btn ghost" data-action="back-master-dashboard">Painel do mestre</button>'
-      : '<button class="btn ghost" data-action="player-home">Minhas fichas</button>';
+      ? '<button class="btn ghost" data-action="back-master-dashboard">← Painel do mestre</button>'
+      : '<button class="btn ghost" data-action="player-home">← Minhas fichas</button>';
   }
 
   function renderEditSheet(c, s) {
@@ -1190,8 +1262,8 @@
           </div>
           <div class="page-head sheet-page-head">
             <div class="identity-hero">
-              <div class="avatar">${esc((s.name || '?').slice(0,1).toUpperCase())}</div>
-              <div><div class="eyebrow">Atualização da ficha</div><h1 class="char-name">${esc(s.name)}</h1><div class="char-sub">${esc(s.ownerName)} · ${esc(c.name)} · código ${esc(c.code)}</div></div>
+              <button type="button" class="avatar-button" data-action="edit-avatar" title="Alterar foto do personagem">${renderCharacterAvatar(s)}</button>
+              <div><div class="eyebrow">Atualização da ficha</div><div class="char-title-line"><h1 class="char-name">${esc(s.name)}</h1><button class="btn ghost small" data-action="rename-character">✎ Nome</button></div><div class="char-sub">${esc(s.ownerName)} · ${esc(c.name)} · código ${esc(c.code)}</div></div>
             </div>
             <span class="pill gold">Alterações salvas automaticamente</span>
           </div>
@@ -1276,7 +1348,9 @@
 
           <article class="game-sheet">
             <header class="game-identity">
-              <div class="game-identity-copy">
+              <div class="game-identity-main">
+                ${renderCharacterAvatar(s, 'game-portrait')}
+                <div class="game-identity-copy">
                 <div class="game-kicker">FICHA DE JOGO · ${esc(c.name)}</div>
                 <h1>${esc(s.name)}</h1>
                 <div class="game-owner">${esc(s.ownerName)}${meta.length ? ` · ${meta.map(esc).join(' · ')}` : ''}</div>
@@ -1287,6 +1361,7 @@
                   ${s.age ? `<span><b>Idade</b>${esc(s.age)}</span>` : ''}
                   ${s.fatalism ? `<span><b>Fatalismo</b>${esc(s.fatalism)}</span>` : ''}
                   ${s.epicScale ? `<span><b>Escala épica</b>${esc(s.epicScale)}</span>` : ''}
+                </div>
                 </div>
               </div>
               <div class="game-vital-card">
@@ -1437,8 +1512,8 @@
           ${s.reserves.upgradePoints > 0 ? `<span class="pill green">${s.reserves.upgradePoints} ponto(s) disponível(is)</span>` : ''}
         </div>`;
       case 'powers': return `<div class="grid two"><div><div class="label">Poderes</div><div class="mt8">${renderGenericList(s.powers,'Nenhum poder.','remove-power')}</div><button class="btn small mt12" data-action="add-power">+ Poder</button></div><div><div class="label">Fraquezas / Aprimoramentos negativos</div><div class="mt8">${renderGenericList(s.weaknesses,'Nenhuma fraqueza ou aprimoramento negativo.','remove-weakness')}</div><div class="flex gap8 mt12 wrap"><button class="btn small" data-action="add-weakness">+ Fraqueza</button><button class="btn small danger" data-action="open-negative-catalog">Catálogo negativo</button></div></div></div>`;
-      case 'identity': return `<div class="grid two">
-        <div class="field"><label class="label">Nome</label><input class="input" data-bind="name" value="${esc(s.name)}"></div>
+      case 'identity': return `<div class="identity-photo-row"><div>${renderCharacterAvatar(s, 'avatar avatar-large')}</div><div><div class="label">Foto do personagem</div><div class="hint mt8">Aparece no Modo de jogo e nos cards da mesa.</div><button class="btn small mt12" data-action="edit-avatar">${s.photoData ? 'Trocar foto' : 'Adicionar foto'}</button></div></div><div class="grid two mt16">
+        <div class="field"><label class="label">Nome</label><div class="input-action-row"><input class="input" data-bind="name" value="${esc(s.name)}"><button type="button" class="btn small" data-action="rename-character">Salvar/editar</button></div></div>
         <div class="field"><label class="label">Jogador</label><input class="input" data-bind="ownerName" value="${esc(s.ownerName)}"></div>
         <div class="field"><label class="label">Título</label><input class="input" data-bind="title" value="${esc(s.title)}" placeholder="Ex.: O Vigia"></div>
         <div class="field"><label class="label">Raça</label><input class="input" data-bind="race" value="${esc(s.race)}"></div>
@@ -1484,12 +1559,12 @@
         ${topbar(c.name)}
         <main class="content">
           <div class="page-head">
-            <div><div class="eyebrow">Painel do mestre</div><h1 class="page-title">${esc(c.name)}</h1><p class="page-copy">Mestre ${esc(c.masterName)} · ${sheets.length} ficha(s) na mesa.</p></div>
-            <div class="flex gap8 wrap"><button class="btn ghost" data-action="master-home">Minhas mesas</button><button class="btn" data-action="master-create-sheet">+ Criar ficha</button><button class="btn" data-action="master-import-sheet">Importar JSON pronta</button><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Convite ${esc(c.code)}</button></div>
+            <div><div class="eyebrow">Painel do mestre</div><h1 class="page-title">${esc(c.name)}</h1><p class="page-copy">Mestres ${esc((c.masterNames?.length ? c.masterNames : [c.masterName]).join(', '))} · ${sheets.length} ficha(s) na mesa.</p></div>
+            <div class="flex gap8 wrap"><button class="btn ghost" data-action="master-home">← Minhas mesas</button><button class="btn" data-action="master-create-sheet">+ Criar ficha</button><button class="btn" data-action="master-import-sheet">Importar JSON pronta</button><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Convite ${esc(c.code)}</button></div>
           </div>
           <div class="master-layout">
             <nav class="master-nav">
-              ${[['overview','Visão geral'],['players','Fichas'],['rules','Regras'],['history','Rolagens']].map(([k,n]) => `<button class="btn ${ui.masterTab===k?'active':''}" data-action="master-tab" data-tab="${k}">${n}</button>`).join('')}
+              ${[['overview','Visão geral'],['players','Fichas'],['team','Mestres'],['rules','Regras'],['history','Rolagens']].map(([k,n]) => `<button class="btn ${ui.masterTab===k?'active':''}" data-action="master-tab" data-tab="${k}">${n}</button>`).join('')}
             </nav>
             <section>${renderMasterTab(c,sheets)}</section>
           </div>
@@ -1506,6 +1581,7 @@
       <div class="mt16">${renderPlayers(c,sheets)}</div>`;
     }
     if (ui.masterTab === 'players') return renderPlayers(c,sheets,true);
+    if (ui.masterTab === 'team') return renderMasterTeam(c);
     if (ui.masterTab === 'rules') return renderRules(c);
     if (ui.masterTab === 'history') return renderHistory(c);
   }
@@ -1518,13 +1594,27 @@
     if (!sheets.length) return `${waitingBlock}<div class="empty"><strong>Nenhuma ficha preparada ainda.</strong>Crie uma ficha vazia ou importe um dos JSONs prontos. Depois vincule ao jogador que entrar com o código <span class="mono gold">${esc(c.code)}</span>.<div class="mt16 flex gap8 wrap"><button class="btn primary" data-action="master-import-sheet">Importar JSON pronta</button><button class="btn" data-action="master-create-sheet">+ Criar ficha vazia</button></div></div>`;
     return `${waitingBlock}<div class="player-grid">${sheets.map(s => {
       const pct = Math.max(0,Math.min(100,(s.combat.hp/Math.max(1,s.combat.hpMax))*100));
-      const member = playerMembers.find(m => m.user_id === s.ownerDeviceId);
+      const member = (c.members || []).find(m => m.user_id === s.ownerDeviceId);
       const assigned = Boolean(s.ownerDeviceId);
-      return `<article class="player-card"><div class="player-card-head"><div><div class="player-name">${esc(s.name)}</div><div class="player-owner">${assigned ? `Jogador: ${esc(member?.display_name || s.ownerName || 'Vinculado')}` : 'Sem jogador vinculado'}</div></div><span class="pill ${assigned ? 'green' : 'gold'}">${assigned ? 'Vinculada' : 'Aguardando jogador'}</span></div>
+      return `<article class="player-card"><div class="player-card-head"><div class="card-character-head">${renderCharacterAvatar(s, 'mini-avatar')}<div><div class="player-name">${esc(s.name)}</div><div class="player-owner">${assigned ? `Jogador: ${esc(member?.display_name || s.ownerName || 'Vinculado')}` : 'Sem jogador vinculado'}</div></div></div><span class="pill ${assigned ? 'green' : 'gold'}">${assigned ? 'Vinculada' : 'Aguardando jogador'}</span></div>
       <div class="mini-hp"><div class="mini-hp-line"><span>Vida</span><span>${s.combat.hp}/${s.combat.hpMax} PV</span></div><div class="mini-track"><div class="mini-fill" style="width:${pct}%"></div></div></div>
       ${full ? `<div class="stat-grid mt12" style="grid-template-columns:1fr 1fr"><div class="stat"><div class="stat-label">Pts perícia</div><div class="stat-value">${s.reserves.skillPoints}</div></div><div class="stat"><div class="stat-label">Pts aprim.</div><div class="stat-value">${s.reserves.upgradePoints}</div></div></div>` : ''}
       <div class="player-actions"><button class="btn primary small" data-action="master-open-sheet" data-mode="play" data-sheet="${s.id}">Modo de jogo</button><button class="btn small" data-action="master-open-sheet" data-mode="edit" data-sheet="${s.id}">Editar ficha</button>${online.ready ? (assigned ? `<button class="btn small" data-action="bind-player" data-sheet="${s.id}">Trocar jogador</button><button class="btn danger small" data-action="unbind-player" data-sheet="${s.id}">Desvincular</button>` : `<button class="btn success small" data-action="bind-player" data-sheet="${s.id}">Vincular jogador</button>`) : ''}<button class="btn success small" data-action="give-points" data-sheet="${s.id}">Dar pontos</button><button class="btn small" data-action="master-hp" data-sheet="${s.id}">Ajustar PV</button></div></article>`;
     }).join('')}</div>`;
+  }
+
+
+  function renderMasterTeam(c) {
+    const members = c.members || [];
+    const masters = members.filter(m => m.role === 'master');
+    const players = members.filter(m => m.role === 'player');
+    const primaryId = c.masterId;
+    return `<div class="card gold-edge"><div class="eyebrow">Compartilhar o painel</div><h2 class="card-title">Mestres da mesa</h2><p class="card-copy">Qualquer mestre listado aqui recebe a mesma visão da mesa, pode abrir e editar fichas, conceder pontos e acompanhar as rolagens.</p>
+      <div class="list mt16">${masters.map(m => `<div class="list-item"><div class="list-main"><div class="list-title">${esc(m.display_name || 'Mestre')}</div><div class="list-sub">${m.user_id === primaryId ? 'Criador da mesa · acesso permanente' : 'Co-mestre · acesso compartilhado'}</div></div>${m.user_id === primaryId ? '<span class="pill gold">Criador</span>' : (m.user_id === currentOwnerId() ? '<span class="pill green">Você</span>' : `<button class="btn danger small" data-action="demote-master" data-user="${esc(m.user_id)}">Remover mestre</button>`) }</div>`).join('')}</div>
+    </div>
+    <div class="card mt16"><div class="eyebrow">Promover alguém</div><h2 class="card-title">Jogadores na sala</h2><p class="card-copy">A pessoa precisa entrar na mesa pelo código pelo menos uma vez. Depois é só torná-la mestre.</p>
+      ${players.length ? `<div class="list mt16">${players.map(m => `<div class="list-item"><div class="list-main"><div class="list-title">${esc(m.display_name || 'Jogador')}</div><div class="list-sub">Pode continuar com uma ficha vinculada mesmo virando co-mestre.</div></div><button class="btn success small" data-action="promote-master" data-user="${esc(m.user_id)}">Tornar mestre</button></div>`).join('')}</div>` : '<div class="empty mt16" style="padding:18px">Nenhum jogador disponível para promover ainda.</div>'}
+    </div>`;
   }
 
   function renderRules(c) {
@@ -1649,9 +1739,13 @@
     if (action === 'go-hub') return renderHub();
     if (action === 'choose-player') return renderPlayerLobby();
     if (action === 'choose-master') return renderMasterLobby();
+    if (action === 'open-master-room') { ui.role='master'; ui.campaignId=el.dataset.campaign; ui.masterTab='overview'; return renderMasterDashboard(); }
     if (action === 'player-home') return renderPlayerLobby();
     if (action === 'master-home') return renderMasterLobby();
     if (action === 'join-table') return openJoinTable();
+    if (action === 'edit-avatar') return openAvatarModal();
+    if (action === 'rename-character') return openRenameCharacter();
+    if (action === 'remove-avatar') { const s=sheet(); if(!s)return; s.photoData=''; s.updatedAt=Date.now(); saveState(); closeModal(); renderSheet(); toast('Foto removida.'); return; }
     if (action === 'create-table') return openCreateTable();
     if (action === 'master-create-sheet') return openMasterCreateSheet();
     if (action === 'master-import-sheet') return openMasterImportSheet();
@@ -1659,6 +1753,14 @@
     if (action === 'unbind-player') {
       const c=campaign(); const s=c?.sheets?.[el.dataset.sheet]; if(!c||!s||!online.ready) return;
       online.client.from('characters').update({ owner_id:null }).eq('id',s.id).then(async ({error})=>{ if(error){toast(`Não consegui desvincular: ${error.message}`);return;} await hydrateOnlineState(); toast(`${s.name} ficou sem jogador.`); renderMasterDashboard(); }); return;
+    }
+    if (action === 'promote-master' || action === 'demote-master') {
+      const c=campaign(); const userId=el.dataset.user; if(!c||!userId||!online.ready)return;
+      const role = action === 'promote-master' ? 'master' : 'player';
+      online.client.rpc('set_room_member_role',{_room_id:c.id,_user_id:userId,_role:role}).then(async ({error})=>{
+        if(error){toast(`Não consegui alterar o acesso: ${error.message}`);return;}
+        await hydrateOnlineState(); toast(role==='master'?'Co-mestre adicionado.':'Acesso de mestre removido.'); renderMasterDashboard();
+      }); return;
     }
     if (action === 'refresh-online') { if(!online.ready)return; hydrateOnlineState().then(()=>renderCurrentViewAfterSync()).catch(err=>toast(err.message)); return; }
     if (action === 'copy-code') { navigator.clipboard?.writeText(el.dataset.code); toast(`Código ${el.dataset.code} copiado.`); return; }
@@ -1723,6 +1825,13 @@
     if (!(form instanceof HTMLFormElement)) return;
     e.preventDefault();
     const fd = new FormData(form);
+
+    if (form.id === 'rename-character-form') {
+      const s=sheet(); if(!s)return;
+      const name=String(fd.get('name')||'').trim();
+      if(!name){toast('Digite um nome para o personagem.');return;}
+      s.name=name; s.updatedAt=Date.now(); saveState(); closeModal(); renderSheet(); toast('Nome atualizado.'); return;
+    }
 
     if (form.id === 'json-import-form') {
       try {
@@ -1853,8 +1962,17 @@
     }
   });
 
-  document.addEventListener('change', e => {
+  document.addEventListener('change', async e => {
     const target=e.target;
+    if (target?.id === 'character-photo-input') {
+      const file=target.files?.[0]; if(!file)return;
+      try {
+        const dataUrl=await resizeCharacterPhoto(file);
+        const s=sheet(); if(!s)return;
+        s.photoData=dataUrl; s.updatedAt=Date.now(); saveState(); closeModal(); renderSheet(); toast('Foto do personagem atualizada.');
+      } catch(err) { toast(err?.message || 'Não consegui usar essa imagem.'); }
+      return;
+    }
     if (!['json-file-input','master-json-file-input'].includes(target?.id)) return;
     const file=target.files?.[0];
     if(!file) return;
