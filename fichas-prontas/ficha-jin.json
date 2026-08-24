@@ -1,0 +1,184 @@
+{
+  "schema": "fichas-daemon-character",
+  "version": 1,
+  "exportedAt": "2026-08-23T22:53:54.199441Z",
+  "character": {
+    "name": "Jin",
+    "ownerName": "",
+    "title": "",
+    "race": "",
+    "sect": "",
+    "kit": "",
+    "level": "2",
+    "fatalism": "",
+    "epicScale": "",
+    "concept": "",
+    "age": "20",
+    "profession": "",
+    "attributes": {
+      "con": 9,
+      "fr": 8,
+      "dex": 12,
+      "agi": 15,
+      "int": 15,
+      "will": 13,
+      "per": 11,
+      "car": 14
+    },
+    "skills": [
+      {
+        "category": "Geral",
+        "name": "Armadilhas",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Armas de Fogo",
+        "name": "Arma de Fogo",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 50,
+        "combat": true
+      },
+      {
+        "category": "Manipulação",
+        "name": "Lábia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 20,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Manha",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Ciências Proibidas",
+        "name": "Alquimia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Manipulação",
+        "name": "Disfarce",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Esquiva",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 50,
+        "combat": true
+      },
+      {
+        "category": "Esportes",
+        "name": "Acrobacia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 30,
+        "combat": false
+      },
+      {
+        "category": "Artes Marciais",
+        "name": "Arte Marcial",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 20,
+        "combat": true
+      },
+      {
+        "category": "Geral",
+        "name": "Furtividade",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 30,
+        "combat": false
+      }
+    ],
+    "creation": {
+      "skillBudgetGenerated": false,
+      "skillBudgetTotal": 250
+    },
+    "reserves": {
+      "skillPoints": 0,
+      "upgradePoints": 1,
+      "heroPoints": 2,
+      "magicPoints": 0
+    },
+    "combat": {
+      "hp": 8,
+      "hpMax": 8,
+      "initiative": 0,
+      "defense": 0,
+      "armor": 0,
+      "damageBonus": 0,
+      "attacks": [
+        {
+          "name": "Beretta dupla",
+          "detail": "Duas Berettas; valor de Arma de Fogo 50%."
+        }
+      ]
+    },
+    "magic": [],
+    "inventory": [
+      {
+        "name": "Beretta",
+        "detail": "2 unidades"
+      }
+    ],
+    "upgrades": [
+      {
+        "name": "Ambidestria",
+        "detail": "2 pontos"
+      },
+      {
+        "name": "Armas de Fogo",
+        "detail": "1 ponto"
+      },
+      {
+        "name": "Poderes Mágicos",
+        "detail": "1 ponto. Afinidade com água: pode controlar líquidos em pequena quantidade. A ideia em combate é usar o disparo para causar sangramento e puxar o sangue derramado para perto."
+      },
+      {
+        "name": "Poderes Vampíricos",
+        "detail": "1 ponto. Capacidade vampírica ligada à recuperação por sangue, podendo se curar ao beber sangue conforme as regras da mesa."
+      },
+      {
+        "name": "Detectar Aura",
+        "detail": "1 ponto"
+      },
+      {
+        "name": "Sedutor",
+        "detail": "1 ponto"
+      }
+    ],
+    "powers": [],
+    "weaknesses": [
+      {
+        "name": "Fobia de Insetos",
+        "detail": "Aprimoramento negativo, 1 ponto."
+      },
+      {
+        "name": "Trauma",
+        "detail": "Aprimoramento negativo, 1 ponto."
+      },
+      {
+        "name": "Analfabeto",
+        "detail": "Aprimoramento negativo, 1 ponto."
+      }
+    ],
+    "notes": "Bixos: não vê vermelho, pisca dessincronizado e possui sangue verde. A ficha principal registra PV 8; esse valor foi mantido."
+  }
+}

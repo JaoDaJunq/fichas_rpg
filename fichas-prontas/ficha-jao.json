@@ -1,0 +1,264 @@
+{
+  "schema": "fichas-daemon-character",
+  "version": 1,
+  "exportedAt": "2026-08-23T22:53:54.197645Z",
+  "character": {
+    "name": "Jão",
+    "ownerName": "",
+    "title": "",
+    "race": "",
+    "sect": "",
+    "kit": "Kit de perícia",
+    "level": "2",
+    "fatalism": "",
+    "epicScale": "",
+    "concept": "",
+    "age": "20",
+    "profession": "",
+    "attributes": {
+      "con": 14,
+      "fr": 13,
+      "dex": 14,
+      "agi": 15,
+      "int": 16,
+      "will": 13,
+      "per": 16,
+      "car": 11
+    },
+    "skills": [
+      {
+        "category": "Armas Brancas",
+        "name": "Arma Branca",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 45,
+        "combat": true
+      },
+      {
+        "category": "Ciências",
+        "name": "Direito / Jurisprudência",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 4,
+        "combat": false
+      },
+      {
+        "category": "Ciências",
+        "name": "Geografia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 4,
+        "combat": false
+      },
+      {
+        "category": "Ciências",
+        "name": "Herbalismo",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 4,
+        "combat": false
+      },
+      {
+        "category": "Ciências",
+        "name": "Química",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 4,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Esquiva",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 25,
+        "combat": true
+      },
+      {
+        "category": "Esportes",
+        "name": "Acrobacia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Esportes",
+        "name": "Salto",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Falsificação",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Manipulação",
+        "name": "Interrogatório",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Manipulação",
+        "name": "Intimidação",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Manipulação",
+        "name": "Liderança",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Luta às Cegas",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": true
+      },
+      {
+        "category": "Geral",
+        "name": "Sobrevivência",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 19,
+        "combat": false
+      },
+      {
+        "category": "Informática",
+        "name": "Internet",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Informática",
+        "name": "Hackear",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Informática",
+        "name": "Programação",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Informática",
+        "name": "Manutenção Informática",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Marketing",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      }
+    ],
+    "creation": {
+      "skillBudgetGenerated": false,
+      "skillBudgetTotal": 0
+    },
+    "reserves": {
+      "skillPoints": 0,
+      "upgradePoints": 0,
+      "heroPoints": 0,
+      "magicPoints": 0
+    },
+    "combat": {
+      "hp": 14,
+      "hpMax": 14,
+      "initiative": 0,
+      "defense": 0,
+      "armor": 0,
+      "damageBonus": 0,
+      "attacks": [
+        {
+          "name": "Lâmina Nichirin do Raio",
+          "detail": "Katana mágica encantada. Ao ser retirada da bainha, a lâmina fica imbuída de raios. Pode servir como foco para controlar eletricidade e canalizar o Raio através da arma."
+        }
+      ]
+    },
+    "magic": [
+      {
+        "name": "Raio",
+        "detail": "Afinidade elétrica com 1 ponto de foco em Controlar. A Lâmina Nichirin do Raio funciona como foco: ao tirá-la da bainha, ela fica imbuída de raios e permite controlar/canalizar a eletricidade através da katana. Também pode controlar raio ou eletricidade existente ao redor, conforme disponibilidade e regra da mesa."
+      }
+    ],
+    "inventory": [
+      {
+        "name": "Mochila",
+        "detail": ""
+      },
+      {
+        "name": "Lâmina Nichirin do Raio",
+        "detail": "Katana mágica encantada; ao sair da bainha fica imbuída de raios."
+      },
+      {
+        "name": "Kit de perícia",
+        "detail": ""
+      },
+      {
+        "name": "Dinheiro",
+        "detail": "R$ 200,00"
+      },
+      {
+        "name": "Canivete",
+        "detail": ""
+      },
+      {
+        "name": "Papel estranho",
+        "detail": ""
+      }
+    ],
+    "upgrades": [
+      {
+        "name": "Afinidade com Magia",
+        "detail": "1 ponto"
+      },
+      {
+        "name": "Capaz de Enxergar Auras",
+        "detail": "1 ponto"
+      },
+      {
+        "name": "Sensitivo",
+        "detail": "2 pontos"
+      },
+      {
+        "name": "Sentidos Aguçados",
+        "detail": "1 ponto"
+      },
+      {
+        "name": "Arma Mágica",
+        "detail": "2 pontos"
+      }
+    ],
+    "powers": [],
+    "weaknesses": [],
+    "notes": "Mora sozinho.\n\nAlucinação: o computador na van repetiu cerca de 40 vezes na minha cabeça \"todos somos 1\". Também apareceu o nome Gamassael e a imagem de um sino gigante com um olho desenhado.\n\nNós encontramos o líder e recebemos as informações na Pizzaria do Geraldo. Geraldo é um velho gordo mexicano.\n\n40 pessoas desapareceram na fazenda sem idade, gênero ou horário em comum, sem um padrão aparente que precisasse ser levado em consideração.\n\nDona Maria, mãe da família, disse que entre 20h e 02h a TV normalmente não apresenta interferências.\n\nMirrael disse que viu na TV um jogo de futebol com 3 goleiros, mais de 46 pessoas dentro do campo e um placar de 48x2."
+  }
+}

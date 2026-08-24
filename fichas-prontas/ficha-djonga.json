@@ -1,0 +1,193 @@
+{
+  "schema": "fichas-daemon-character",
+  "version": 1,
+  "exportedAt": "2026-08-23T22:53:54.199038Z",
+  "character": {
+    "name": "Djonga",
+    "ownerName": "",
+    "title": "",
+    "race": "",
+    "sect": "",
+    "kit": "",
+    "level": "2",
+    "fatalism": "",
+    "epicScale": "",
+    "concept": "",
+    "age": "20",
+    "profession": "",
+    "attributes": {
+      "con": 14,
+      "fr": 15,
+      "dex": 12,
+      "agi": 17,
+      "int": 14,
+      "will": 14,
+      "per": 13,
+      "car": 9
+    },
+    "skills": [
+      {
+        "category": "Armas Brancas",
+        "name": "Arma Branca",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 36,
+        "combat": true
+      },
+      {
+        "category": "Geral",
+        "name": "Psionismo",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 11,
+        "combat": false
+      },
+      {
+        "category": "Condução",
+        "name": "Dirigir Carro",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 14,
+        "combat": false
+      },
+      {
+        "category": "Condução",
+        "name": "Avião Militar",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 12,
+        "combat": false
+      },
+      {
+        "category": "Engenharia",
+        "name": "Eletrônica",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 25,
+        "combat": false
+      },
+      {
+        "category": "Condução",
+        "name": "Barco a Vela",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Esquiva",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 31,
+        "combat": true
+      },
+      {
+        "category": "Manipulação",
+        "name": "Interrogatório",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Luta às Cegas",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 13,
+        "combat": true
+      },
+      {
+        "category": "Geral",
+        "name": "Manuseio de Fechaduras",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 11,
+        "combat": false
+      },
+      {
+        "category": "Engenharia",
+        "name": "Mecânica",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 20,
+        "combat": false
+      },
+      {
+        "category": "Pesquisa",
+        "name": "Pesquisa",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 20,
+        "combat": false
+      },
+      {
+        "category": "Ciências",
+        "name": "História",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 12,
+        "combat": false
+      },
+      {
+        "category": "Informática",
+        "name": "Criptografia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Ciências",
+        "name": "Biologia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      }
+    ],
+    "creation": {
+      "skillBudgetGenerated": false,
+      "skillBudgetTotal": 0
+    },
+    "reserves": {
+      "skillPoints": 0,
+      "upgradePoints": 1,
+      "heroPoints": 0,
+      "magicPoints": 0
+    },
+    "combat": {
+      "hp": 15,
+      "hpMax": 15,
+      "initiative": 0,
+      "defense": 0,
+      "armor": 0,
+      "damageBonus": 0,
+      "attacks": []
+    },
+    "magic": [],
+    "inventory": [],
+    "upgrades": [
+      {
+        "name": "Ataque Extra",
+        "detail": "2 pontos"
+      },
+      {
+        "name": "Arma Mágica",
+        "detail": "2 pontos"
+      },
+      {
+        "name": "Ponto Heróico",
+        "detail": "2 pontos"
+      },
+      {
+        "name": "Saúde de Ferro",
+        "detail": "1 ponto"
+      }
+    ],
+    "powers": [],
+    "weaknesses": [],
+    "notes": "Possui 1 ponto de Aprimoramento sobrando para distribuir futuramente. Interrogatório 15 e Luta às Cegas 13 foram mantidos conforme a ficha física."
+  }
+}

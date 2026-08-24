@@ -22,7 +22,8 @@
     saveTimer: null,
     refreshTimer: null,
     pendingRefresh: false,
-    channel: null
+    channel: null,
+    features: { library: false, history: false }
   };
 
   function currentOwnerId() {
@@ -30,7 +31,7 @@
   }
 
   function onlineStatusLabel() {
-    if (online.ready) return '● Online · Supabase · v10.1';
+    if (online.ready) return '● Online · Supabase · v11';
     if (online.enabled && online.error) return `● Supabase indisponível: ${online.error}`;
     if (online.enabled) return '● Conectando ao Supabase…';
     return '● Modo local';
@@ -142,12 +143,14 @@
     if (roomError) throw roomError;
 
     const ids = (rooms || []).map(r => r.id);
-    let members = [], chars = [], rolls = [];
+    let members = [], chars = [], rolls = [], library = [], history = [];
     if (ids.length) {
-      const [m, ch, ro] = await Promise.all([
+      const [m, ch, ro, lib, hist] = await Promise.all([
         online.client.from('room_members').select('*').in('room_id', ids),
         online.client.from('characters').select('*').in('room_id', ids).order('updated_at', { ascending: false }),
-        online.client.from('rolls').select('*').in('room_id', ids).order('created_at', { ascending: false }).limit(200)
+        online.client.from('rolls').select('*').in('room_id', ids).order('created_at', { ascending: false }).limit(200),
+        online.client.from('room_library').select('*').in('room_id', ids).order('created_at', { ascending: false }).limit(300),
+        online.client.from('character_history').select('*').in('room_id', ids).order('created_at', { ascending: false }).limit(300)
       ]);
       if (m.error) throw m.error;
       if (ch.error) throw ch.error;
@@ -155,6 +158,13 @@
       members = m.data || [];
       chars = ch.data || [];
       rolls = ro.data || [];
+      online.features.library = !lib.error;
+      online.features.history = !hist.error;
+      if (!lib.error) library = lib.data || [];
+      if (!hist.error) history = hist.data || [];
+    } else {
+      online.features.library = true;
+      online.features.history = true;
     }
 
     const next = freshState();
@@ -179,6 +189,8 @@
         members: roomMembers,
         sheets: {},
         logs: [],
+        library: [],
+        history: [],
         createdAt: Date.parse(r.created_at || '') || Date.now()
       };
     });
@@ -224,6 +236,40 @@
       });
     });
 
+    library.forEach(row => {
+      const c = next.campaigns[row.room_id];
+      if (!c) return;
+      c.library.push({
+        id: row.id,
+        title: row.title || 'Registro',
+        category: row.category || 'Pista',
+        body: row.body || '',
+        isPublic: row.is_public !== false,
+        createdBy: row.created_by || null,
+        createdAt: Date.parse(row.created_at || '') || Date.now(),
+        updatedAt: Date.parse(row.updated_at || '') || Date.now()
+      });
+    });
+
+    history.forEach(row => {
+      const c = next.campaigns[row.room_id];
+      if (!c) return;
+      const member = memberMap.get(`${row.room_id}:${row.actor_id}`);
+      const targetSheet = c.sheets[row.character_id];
+      c.history.push({
+        id: String(row.id),
+        characterId: row.character_id,
+        character: targetSheet?.name || 'Personagem',
+        actor: member?.display_name || 'Mestre',
+        action: row.action || 'sheet_update',
+        summary: row.summary || 'Alteração na ficha',
+        before: row.before_state || {},
+        after: row.after_state || {},
+        undoneAt: row.undone_at ? Date.parse(row.undone_at) : null,
+        at: Date.parse(row.created_at || '') || Date.now()
+      });
+    });
+
     state = normalizeStateShape(next);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     return state;
@@ -249,13 +295,15 @@
 
   function subscribeOnline() {
     if (!online.ready || online.channel) return;
-    online.channel = online.client
+    let channel = online.client
       .channel(`fichas-daemon-${online.user.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'characters' }, scheduleOnlineRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_members' }, scheduleOnlineRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, scheduleOnlineRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rolls' }, scheduleOnlineRefresh)
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rolls' }, scheduleOnlineRefresh);
+    if (online.features.library) channel = channel.on('postgres_changes', { event: '*', schema: 'public', table: 'room_library' }, scheduleOnlineRefresh);
+    if (online.features.history) channel = channel.on('postgres_changes', { event: '*', schema: 'public', table: 'character_history' }, scheduleOnlineRefresh);
+    online.channel = channel.subscribe();
   }
 
   async function bootOnline() {
@@ -307,6 +355,8 @@
   ];
 
   const BASE_UPGRADES = [{"id":"afinidade-fadas","name":"Afinidade com Fadas","kind":"positive","variants":[{"cost":3,"label":"3 pontos","detail":"Sua presença não assusta fadas e outros seres de Arcádia; eles tendem a tratá-lo com mais naturalidade."},{"cost":4,"label":"4 pontos","detail":"Como acima, além de possuir um ou dois amigos entre os povos de Arcádia."},{"cost":5,"label":"5 pontos","detail":"Como acima, com vínculos mais fortes em Arcádia e um lugar seguro ou aliados recorrentes no reino feérico."}]},{"id":"afinidade-magia","name":"Afinidade com Magia","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Apenas para não-magos. O personagem possui afinidade com um Caminho de Magia escolhido e alguma proteção contra seus efeitos."}]},{"id":"alma-pura","name":"Alma Pura","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Para personagens de alma excepcionalmente pura. Entidades e magias demoníacas têm mais dificuldade para afetá-lo."}]},{"id":"ambidestria","name":"Ambidestria","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"O personagem usa as duas mãos com a mesma eficiência e evita as penalidades comuns por usar a mão secundária."}]},{"id":"amigo-fantasma","name":"Amigo Fantasma","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"Um antigo amigo morto permanece como espírito companheiro. É controlado pelo Mestre e pode ajudar ocasionalmente."}]},{"id":"anjo-guarda","name":"Anjo da Guarda","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"Um espírito guia acompanha o personagem e pode se comunicar com ele em sonhos."},{"cost":3,"label":"3 pontos","detail":"Além de orientar, o espírito também observa e protege o personagem de forma mais ativa quando necessário."}]},{"id":"armas-fogo","name":"Armas de Fogo","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"O personagem possui revólveres e pistolas e acesso comum a esse tipo de arma."},{"cost":2,"label":"2 pontos","detail":"O acesso inclui submetralhadoras, carabinas, espingardas e armas automáticas ou restritas."},{"cost":3,"label":"3 pontos","detail":"O personagem tem acesso a metralhadoras pesadas, armamento militar e outras armas pesadas."}]},{"id":"arma-amuleto-magico","name":"Arma ou Amuleto Mágico","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"O personagem possui um objeto mágico simples, com um efeito ou bônus pequeno e bem definido."},{"cost":2,"label":"2 pontos","detail":"O objeto é mais poderoso e concede um efeito ou bônus mágico relevante, definido com o Mestre."},{"cost":3,"label":"3 pontos","detail":"O personagem conhece o ritual para criar itens mágicos e pode produzir os próprios objetos, com aprovação do Mestre."}]},{"id":"biblioteca","name":"Biblioteca","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Biblioteca com conhecimento em 2 subgrupos de perícias."},{"cost":2,"label":"2 pontos","detail":"Biblioteca com conhecimento em 6 subgrupos de perícias."},{"cost":3,"label":"3 pontos","detail":"Biblioteca com conhecimento em 10 subgrupos de perícias."},{"cost":4,"label":"4 pontos","detail":"Biblioteca com conhecimento em 14 subgrupos de perícias."},{"cost":5,"label":"5 pontos","detail":"Biblioteca com conhecimento em 20 subgrupos de perícias."}]},{"id":"bom-senso","name":"Bom Senso","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"O Mestre pode alertar o jogador quando uma decisão for obviamente ruim ou suicida, especialmente útil para iniciantes."}]},{"id":"canalizador","name":"Canalizador","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"Para magos. Pode trocar 6 PV por 1 Ponto de Magia quando precisar."},{"cost":4,"label":"4 pontos","detail":"Para magos. Pode trocar 4 PV por 1 Ponto de Magia quando precisar."}]},{"id":"enxergar-auras","name":"Capaz de Enxergar Auras","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Com concentração e um teste de Percepção, o personagem percebe a aura de outras pessoas e indícios do estado espiritual delas."}]},{"id":"comunicacao-sonhos","name":"Comunicação com Sonhos","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"O personagem consegue se comunicar com outras pessoas enquanto elas dormem, por meio de sonhos."},{"cost":4,"label":"4 pontos","detail":"Além da comunicação onírica, possui contatos ou aliados no reino dos Sonhos, definidos com o Mestre."}]},{"id":"conhecimentos-arcanos","name":"Conhecimentos Arcanos","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"O personagem conhece métodos de prevenção e defesa contra magia e sabe interpretar sinais místicos ligados a cartas, runas, I Ching, Feng Shui, Tarot e afins."}]},{"id":"corpo-fechado","name":"Corpo Fechado","kind":"positive","variants":[{"cost":4,"label":"4 pontos","detail":"O personagem é especialmente resistente a efeitos sobrenaturais e tentativas místicas de afetar seu corpo, conforme definido com o Mestre."}]},{"id":"contatos-aliados","name":"Contatos e Aliados","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Um aliado importante que pode prestar ajuda dentro de sua área de influência."},{"cost":2,"label":"2 pontos","detail":"Dois aliados importantes."},{"cost":3,"label":"3 pontos","detail":"Quatro aliados importantes."},{"cost":4,"label":"4 pontos","detail":"Oito aliados importantes."}]},{"id":"deteccao-magia","name":"Detecção de Magia","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"Com um teste de Percepção, detecta presença de energia mágica ou mística em pessoa, objeto, criatura ou local."},{"cost":3,"label":"3 pontos","detail":"Além de detectar a magia, consegue estimar intensidade, distância e direção."}]},{"id":"familiares","name":"Familiares","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Um animal relativamente simples e comum acompanha o personagem."},{"cost":2,"label":"2 pontos","detail":"Um animal comum, mas maior, mais útil ou menos trivial de manter."},{"cost":3,"label":"3 pontos","detail":"Um animal raro, difícil de encontrar ou de grande porte."},{"cost":4,"label":"4 pontos","detail":"Uma criatura mística ou sobrenatural serve como familiar, com aprovação do Mestre."}]},{"id":"gremlins","name":"Gremlins","kind":"positive","variants":[{"cost":3,"label":"3 pontos","detail":"Um pequeno grupo de gremlins acompanha o personagem e pode sabotar equipamentos ou causar efeitos incomuns sob controle do Mestre."}]},{"id":"guardiao-artefato","name":"Guardião de Artefato","kind":"positive","variants":[{"cost":3,"label":"3 pontos","detail":"O personagem é guardião de um item de grande valor e poder. A escolha do artefato exige aprovação do Mestre."}]},{"id":"homunculo","name":"Homúnculo","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"O personagem possui um pequeno homúnculo obediente que pode cumprir tarefas simples, carregar objetos e auxiliá-lo."}]},{"id":"imunidade-venenos","name":"Imunidade a Venenos","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"Imune a venenos naturais e recebe proteção adicional contra venenos mágicos ou artificiais."},{"cost":3,"label":"3 pontos","detail":"Imune a venenos naturais e artificiais, além de receber proteção maior contra venenos mágicos."}]},{"id":"inocencia","name":"Inocência","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"A aparência ou comportamento inocente faz com que os outros tenham dificuldade em acreditar que o personagem cometeria certas ações."},{"cost":2,"label":"2 pontos","detail":"A inocência é ainda mais convincente; tentativas de acusá-lo ou tratá-lo como suspeito sofrem dificuldade maior."}]},{"id":"pactos","name":"Pactos","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"O personagem possui um pacto com uma entidade poderosa. Benefícios e obrigações devem ser definidos em conjunto com o Mestre."}]},{"id":"poderes-angelicais","name":"Poderes Angelicais","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Acesso a 1 Poder Angelical, escolhido conforme as regras da campanha."},{"cost":2,"label":"2 pontos","detail":"Acesso a 3 Poderes Angelicais."},{"cost":3,"label":"3 pontos","detail":"Acesso a 5 Poderes Angelicais."},{"cost":4,"label":"4 pontos","detail":"Acesso a 7 Poderes Angelicais."}]},{"id":"poderes-demoniacos","name":"Poderes Demoníacos","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Acesso a 1 Poder Demoníaco, escolhido conforme as regras da campanha."},{"cost":2,"label":"2 pontos","detail":"Acesso a 3 Poderes Demoníacos."},{"cost":3,"label":"3 pontos","detail":"Acesso a 5 Poderes Demoníacos."},{"cost":4,"label":"4 pontos","detail":"Acesso a 7 Poderes Demoníacos."}]},{"id":"poderes-magicos","name":"Poderes Mágicos","kind":"positive","variants":[{"cost":1,"label":"1 ponto · Aprendiz","detail":"Obrigatório para magos. Possui 2 Pontos de Focus para distribuir entre Caminhos e começa com 1 Ponto de Magia."},{"cost":2,"label":"2 pontos · Mago","detail":"Pratica as artes arcanas há algum tempo. Começa com 3 Pontos de Focus e 2 Pontos de Magia."},{"cost":3,"label":"3 pontos · Mago desenvolvido","detail":"Possui 5 Pontos de Focus para distribuir entre Caminhos e Formas, 3 Pontos de Magia e um inimigo mortal definido com o Mestre."}]},{"id":"poderes-vampiricos","name":"Poderes Vampíricos","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Acesso a 1 Poder Vampírico da raça escolhida."},{"cost":2,"label":"2 pontos","detail":"Acesso a 3 Poderes Vampíricos da raça escolhida."},{"cost":3,"label":"3 pontos","detail":"Acesso a 5 Poderes Vampíricos da raça escolhida."}]},{"id":"pontos-heroicos","name":"Pontos Heroicos","kind":"positive","variants":[{"cost":1,"label":"1 ponto · Corajoso","detail":"Recebe 1 Ponto Heroico por nível."},{"cost":2,"label":"2 pontos · Valoroso","detail":"Recebe 2 Pontos Heroicos por nível."},{"cost":3,"label":"3 pontos · Intrépido","detail":"Recebe 3 Pontos Heroicos por nível."},{"cost":4,"label":"4 pontos · Herói","detail":"Recebe 4 Pontos Heroicos por nível."}]},{"id":"pontos-fe","name":"Pontos de Fé","kind":"positive","variants":[{"cost":1,"label":"1 ponto · Seguidor","detail":"Para clérigos ou paladinos. Começa com 1 Ponto de Fé e ganha +1 a cada 2 níveis."},{"cost":2,"label":"2 pontos · Fiel","detail":"Começa com 2 Pontos de Fé e ganha +1 a cada 2 níveis."},{"cost":3,"label":"3 pontos · Entusiasta","detail":"Começa com 3 Pontos de Fé e ganha +1 por nível."},{"cost":4,"label":"4 pontos · Fanático","detail":"Começa com 5 Pontos de Fé e ganha +1 por nível."}]},{"id":"recursos-dinheiro","name":"Recursos e Dinheiro","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Renda de referência de até US$ 2.000 mensais, ajustável à época e ao local da campanha."},{"cost":2,"label":"2 pontos","detail":"Renda de referência de até US$ 4.000 mensais."},{"cost":3,"label":"3 pontos","detail":"Renda de referência de até US$ 8.000 mensais."},{"cost":4,"label":"4 pontos","detail":"Renda de referência de até US$ 16.000 mensais."}]},{"id":"resistencia-magia","name":"Resistência à Magia","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Não pode ser comprado por personagens que usam Magia. Magias contra o personagem recebem redutor de 1D."},{"cost":3,"label":"3 pontos","detail":"Como acima, mas as magias contra o personagem recebem redutor de 2D."}]},{"id":"sabio","name":"Sábio","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Escolha uma perícia não-combate que o personagem domina profundamente. O Mestre pode ajudá-lo com informações e procedimentos ligados a essa área."}]},{"id":"saude-ferro","name":"Saúde de Ferro","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"O personagem se recupera mais rápido de ferimentos e resiste melhor a doenças e períodos de recuperação."}]},{"id":"sedutor","name":"Sedutor","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Recebe bônus em situações de sedução e charme quando isso fizer sentido na cena."}]},{"id":"sensitivo","name":"Sensitivo","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Sensibilidade extra ao sobrenatural: pressentimentos, arrepios e sinais sutis da presença de forças estranhas."},{"cost":2,"label":"2 pontos","detail":"Além da sensibilidade geral, possui uma especialização extra-sensorial definida com o Mestre."}]},{"id":"senso-direcao","name":"Senso de Direção","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"O personagem sabe se orientar mesmo sem referências visuais claras, usando noção de posição e direção."},{"cost":2,"label":"2 pontos","detail":"A orientação funciona mesmo em condições anormais ou sobrenaturais, com limites definidos pelo Mestre."}]},{"id":"senso-numerico","name":"Senso Numérico","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"O personagem estima quantidades e faz cálculos mentais simples com rapidez impressionante."}]},{"id":"sentidos-agucados","name":"Sentidos Aguçados","kind":"positive","variants":[{"cost":1,"label":"1 ponto por sentido","detail":"Escolha um sentido para ser excepcionalmente aguçado. Pode ser comprado novamente para sentidos diferentes."}]},{"id":"sono-leve","name":"Sono Leve","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"O personagem acorda com facilidade diante de barulho, movimento ou outros sinais de perigo próximo."}]},{"id":"sortudo","name":"Sortudo","kind":"positive","variants":[{"cost":2,"label":"2 pontos","detail":"Uma vez por sessão, o jogador pode repetir uma rolagem relevante. O segundo resultado é o que vale."}]},{"id":"status","name":"Status","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Figura reconhecida em um bairro ou círculo local."},{"cost":2,"label":"2 pontos","detail":"Algum prestígio em uma pequena cidade ou comunidade."},{"cost":3,"label":"3 pontos","detail":"Reconhecimento em várias pequenas cidades ou numa região."},{"cost":4,"label":"4 pontos","detail":"Status de alcance estadual ou equivalente, com posição de grande influência."}]},{"id":"talento","name":"Talento","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Escolha uma Arte ou perícia apropriada. Testes Normais ligados a esse talento podem ser tratados como Fáceis, a critério do Mestre."}]},{"id":"tutor","name":"Tutor","kind":"positive","variants":[{"cost":1,"label":"1 ponto","detail":"Um tutor humano vivo e acessível ensina e orienta o personagem."},{"cost":2,"label":"2 pontos","detail":"Um tutor humano difícil de encontrar, escondido ou distante."},{"cost":3,"label":"3 pontos","detail":"Um tutor humano extremamente difícil de alcançar, preso, isolado ou em situação semelhante."},{"cost":4,"label":"4 pontos","detail":"Um tutor muito poderoso, sobrenatural ou perigosíssimo de encontrar, sujeito à aprovação do Mestre."}]},{"id":"alcoolatra","name":"Alcoólatra","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Dependência de álcool. Em abstinência ou sob efeito, o Mestre pode aplicar dificuldades e consequências apropriadas."}]},{"id":"alma-vendida","name":"Alma Vendida","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"A alma do personagem foi prometida ou vendida a uma entidade. A cobrança dessa dívida faz parte da campanha."}]},{"id":"alucinado","name":"Alucinado","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"O personagem sofre alucinações recorrentes que podem confundir percepção, memória e interpretação da realidade."}]},{"id":"analfabeto","name":"Analfabeto","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"O personagem não aprendeu a ler e escrever; conhecimentos que dependem de leitura ficam limitados."}]},{"id":"assassino-serial","name":"Assassino Serial","kind":"negative","variants":[{"cost":-2,"label":"-2 pontos","detail":"O personagem possui um padrão homicida recorrente e uma marca ou comportamento que pode atrair investigação."},{"cost":-3,"label":"-3 pontos","detail":"Como acima, mas com histórico muito mais grave e perseguição ativa de autoridades ou inimigos."}]},{"id":"assombrado","name":"Assombrado","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Pessoas comuns e animais percebem algo perturbador ou sobrenatural no personagem e podem reagir mal à presença dele."}]},{"id":"azarado","name":"Azarado","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"O acaso tende a se virar contra o personagem. O Mestre pode introduzir complicações pequenas e inconvenientes."}]},{"id":"canibal","name":"Canibal","kind":"negative","variants":[{"cost":-3,"label":"-3 pontos","detail":"O personagem possui um impulso canibal grave, com consequências sociais, legais e psicológicas severas."}]},{"id":"cleptomaniaco","name":"Cleptomaníaco","kind":"negative","variants":[{"cost":-2,"label":"-2 pontos","detail":"O personagem sente compulsão por roubar objetos, mesmo quando o valor ou a necessidade não justificam o risco."}]},{"id":"codigo-honra","name":"Código de Honra","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"O personagem segue um código moral ou juramento rígido que limita suas escolhas e pode colocá-lo em conflito com a situação."}]},{"id":"defeito-fisico","name":"Defeito Físico","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Uma limitação física relevante, como perda parcial de visão, audição ou mobilidade, definida com o Mestre."},{"cost":-2,"label":"-2 pontos","detail":"Uma limitação física severa ou permanente que afeta várias situações de jogo."}]},{"id":"drogado","name":"Drogado","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Dependência de uma droga. Abstinência e uso podem impor dificuldades, riscos e consequências em cena."}]},{"id":"dupla-personalidade","name":"Dupla Personalidade","kind":"negative","variants":[{"cost":-3,"label":"-3 pontos","detail":"O personagem possui identidades ou comportamentos muito distintos, e mudanças podem ocorrer em momentos críticos definidos com o Mestre."}]},{"id":"esquizofrenico","name":"Esquizofrênico","kind":"negative","variants":[{"cost":-2,"label":"-2 pontos","detail":"O personagem convive com perturbações severas de percepção e interpretação da realidade, tratadas como elemento ficcional da campanha."}]},{"id":"ferro-frio","name":"Ferro Frio","kind":"negative","variants":[{"cost":-2,"label":"-2 pontos","detail":"Contato com ferro frio causa dor, ferimentos ou enfraquecimento sobrenatural ao personagem."}]},{"id":"fobia-grave","name":"Fobia Grave","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Medo intenso de um gatilho específico. Quando exposto, o personagem pode sofrer penalidades ou perder o controle."}]},{"id":"gremlinit","name":"Gremlinit","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Pequenos gremlins sabotam ou prejudicam os equipamentos do personagem, fazendo objetos falharem ou se quebrarem em momentos ruins."}]},{"id":"inimigos","name":"Inimigos","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto · 1 inimigo","detail":"Um inimigo importante e recorrente, definido com o Mestre."},{"cost":-2,"label":"-2 pontos · 2 inimigos","detail":"Dois inimigos importantes e recorrentes."},{"cost":-3,"label":"-3 pontos · 3 inimigos","detail":"Três inimigos importantes e recorrentes."}]},{"id":"mania-perseguicao","name":"Mania de Perseguição","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"O personagem acredita estar sendo perseguido ou observado e tende a interpretar coincidências como sinais de conspiração."}]},{"id":"maniaco-depressivo","name":"Maníaco-Depressivo","kind":"negative","variants":[{"cost":-2,"label":"-2 pontos","detail":"Mudanças intensas de humor e energia afetam comportamento, decisões e estabilidade do personagem durante a campanha."}]},{"id":"mentiroso-compulsivo","name":"Mentiroso Compulsivo","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"O personagem mente por impulso, inclusive quando dizer a verdade seria mais simples ou seguro."}]},{"id":"obsessao","name":"Obsessão","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Fixação intensa por uma pessoa, objeto, ideia ou objetivo, capaz de interferir em decisões e prioridades."}]},{"id":"perda-terrivel","name":"Perda Terrível","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Um trauma ligado à perda de pessoas ou algo muito importante ainda afeta fortemente o personagem."}]},{"id":"perversao-sexual","name":"Perversão Sexual","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Compulsão ou comportamento sexual que cria problemas recorrentes para o personagem; intensidade e limites devem ser combinados com a mesa."},{"cost":-2,"label":"-2 pontos","detail":"Versão mais severa, com consequências sociais, emocionais ou legais maiores; use apenas se a mesa estiver confortável com o tema."},{"cost":-3,"label":"-3 pontos","detail":"Versão extrema e altamente problemática. Requer consentimento explícito da mesa e definição cuidadosa com o Mestre."}]},{"id":"poltergeist","name":"Poltergeist","kind":"negative","variants":[{"cost":-2,"label":"-2 pontos","detail":"Fenômenos de poltergeist se manifestam ao redor do personagem, causando ruídos, movimentos de objetos ou acidentes inexplicáveis."}]},{"id":"sangramento","name":"Sangramento","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Ferimentos do personagem sangram de forma anormal e podem piorar ou exigir cuidados adicionais."}]},{"id":"toque-letal","name":"Toque Letal","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"O toque do personagem causa efeitos nocivos em criaturas pequenas, plantas ou outros seres frágeis."},{"cost":-2,"label":"-2 pontos","detail":"Versão mais intensa: o contato pode ferir seriamente seres vivos, exigindo extremo cuidado."}]},{"id":"traumatizado","name":"Traumatizado","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Um acontecimento traumático deixa gatilhos claros. Quando confrontado com algo relacionado, o personagem pode sofrer penalidades ou perder ações."}]},{"id":"viciado-jogos","name":"Viciado em Jogos","kind":"negative","variants":[{"cost":-1,"label":"-1 ponto","detail":"Compulsão por jogos e apostas leva o personagem a perder dinheiro, assumir riscos ou aceitar desafios inadequados."}]}];
+
+  let deferredInstallPrompt = null;
 
   const ui = {
     role: null,
@@ -376,6 +426,8 @@
       c.members ||= [];
       c.sheets ||= {};
       c.logs ||= [];
+      c.library ||= [];
+      c.history ||= [];
       Object.values(c.sheets).forEach(normalizeSheet);
     });
     return target;
@@ -472,6 +524,8 @@
       members: [],
       sheets: {},
       logs: [],
+      library: [],
+      history: [],
       createdAt: Date.now()
     };
   }
@@ -1101,6 +1155,198 @@
   }
 
 
+  function simpleHistorySnapshot(s) {
+    return {
+      hp_current: Math.max(0, Number(s?.combat?.hp) || 0),
+      hp_max: Math.max(1, Number(s?.combat?.hpMax) || 1),
+      hero_points: Math.max(0, Number(s?.reserves?.heroPoints) || 0),
+      magic_points: Math.max(0, Number(s?.reserves?.magicPoints) || 0),
+      skill_points: Math.max(0, Number(s?.reserves?.skillPoints) || 0),
+      upgrade_points: Math.max(0, Number(s?.reserves?.upgradePoints) || 0)
+    };
+  }
+
+  async function logCharacterHistory(s, summary, beforeState, afterState, action = 'sheet_update') {
+    const c = campaign();
+    if (!online.ready || !online.features.history || !c?.isMaster || !s?.id) return;
+    const { error } = await online.client.from('character_history').insert({
+      room_id: c.id,
+      character_id: s.id,
+      actor_id: online.user.id,
+      action,
+      summary,
+      before_state: beforeState || {},
+      after_state: afterState || {}
+    });
+    if (error) console.warn('Histórico indisponível:', error.message);
+  }
+
+  async function persistMasterChange(s, summary, beforeState, action = 'sheet_update') {
+    const c = campaign();
+    if (!c || !s) return;
+    const afterState = simpleHistorySnapshot(s);
+    if (online.ready) {
+      await persistSheetOnline(s, c.id);
+      await logCharacterHistory(s, summary, beforeState, afterState, action);
+      await hydrateOnlineState();
+    }
+  }
+
+  function rollResultClass(result = '') {
+    const value = String(result || '').toLowerCase();
+    if (value.includes('crítico') || value.includes('critico')) return 'critical';
+    if (value.includes('falha')) return 'fail';
+    return 'success';
+  }
+
+  function renderRollFeed(c, limit = 30) {
+    const logs = (c.logs || []).slice(0, limit);
+    if (!logs.length) return `<div class="empty"><strong>Nenhuma rolagem registrada.</strong>Os testes feitos nas fichas aparecem aqui.</div>`;
+    return `<div class="roll-feed">${logs.map(l => `
+      <article class="roll-feed-item ${rollResultClass(l.result)}">
+        <div class="roll-feed-main">
+          <div><span class="roll-feed-character">${esc(l.character)}</span><strong>${esc(l.label)}</strong></div>
+          <span class="roll-feed-time">${new Date(l.at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+        </div>
+        <div class="roll-feed-score"><span class="mono">${l.roll}</span><span>alvo ${l.target}%</span><b>${esc(l.result)}</b></div>
+      </article>`).join('')}</div>`;
+  }
+
+  function openLibraryModal() {
+    const c = campaign(); if (!c) return;
+    const entries = (c.library || []).filter(item => c.isMaster || item.isPublic);
+    modal({
+      title: `Biblioteca · ${esc(c.name)}`,
+      copy: c.isMaster ? 'Pistas, lugares, pessoas e documentos da campanha.' : 'Informações liberadas pelo Mestre para a mesa.',
+      body: entries.length ? `<div class="library-list">${entries.map(item => `
+        <article class="library-entry">
+          <div class="flex between center gap8 wrap"><span class="pill">${esc(item.category)}</span>${c.isMaster && !item.isPublic ? '<span class="pill gold">Só mestres</span>' : ''}</div>
+          <h3>${esc(item.title)}</h3>
+          <p>${esc(item.body).replaceAll('\n','<br>')}</p>
+        </article>`).join('')}</div>` : '<div class="empty">A biblioteca ainda está vazia.</div>'
+    });
+  }
+
+  function openLibraryEntryModal(entryId = '') {
+    const c = campaign(); if (!c?.isMaster) return;
+    const entry = (c.library || []).find(x => x.id === entryId);
+    modal({
+      title: entry ? 'Editar registro' : 'Novo registro na biblioteca',
+      body: `<form class="form" id="library-entry-form" data-entry="${esc(entryId)}">
+        <div class="grid two">
+          <div class="field"><label class="label">Título</label><input class="input" name="title" maxlength="120" value="${esc(entry?.title || '')}" required></div>
+          <div class="field"><label class="label">Categoria</label><select class="select" name="category">${['Pista','Pessoa','Lugar','Criatura','Documento','Símbolo','Outro'].map(v=>`<option ${entry?.category===v?'selected':''}>${v}</option>`).join('')}</select></div>
+        </div>
+        <div class="field"><label class="label">Conteúdo</label><textarea class="textarea" name="body" rows="7" required>${esc(entry?.body || '')}</textarea></div>
+        <label class="json-check"><input type="checkbox" name="isPublic" value="1" ${entry?.isPublic===false?'':'checked'}> Visível para os jogadores</label>
+        <button class="btn primary" type="submit">${entry ? 'Salvar registro' : 'Adicionar à biblioteca'}</button>
+      </form>`
+    });
+  }
+
+  function renderLibraryManager(c) {
+    if (!online.features.library) return `<div class="empty"><strong>Biblioteca ainda não ativada no banco.</strong>Rode o SQL da v11 no Supabase para liberar esta aba.</div>`;
+    const entries = c.library || [];
+    return `<div class="flex between center gap12 wrap mb16"><div><div class="eyebrow">Arquivo da campanha</div><h2 class="card-title">Biblioteca da mesa</h2><p class="card-copy">Registre pistas e informações. Itens marcados como visíveis aparecem para os jogadores.</p></div><button class="btn primary" data-action="library-add">+ Novo registro</button></div>
+      ${entries.length ? `<div class="library-grid">${entries.map(item => `<article class="card library-card"><div class="flex between center gap8 wrap"><span class="pill">${esc(item.category)}</span><span class="pill ${item.isPublic?'green':'gold'}">${item.isPublic?'Jogadores veem':'Só mestres'}</span></div><h3 class="card-title mt12">${esc(item.title)}</h3><p class="card-copy library-preview">${esc(item.body)}</p><div class="flex gap8 wrap mt16"><button class="btn small" data-action="library-edit" data-id="${item.id}">Editar</button><button class="btn danger small" data-action="library-delete" data-id="${item.id}">Excluir</button></div></article>`).join('')}</div>` : '<div class="empty"><strong>Nenhuma informação cadastrada.</strong>Comece pelas pessoas, lugares ou pistas que a mesa já descobriu.</div>'}`;
+  }
+
+  function renderSessionPanel(c, sheets) {
+    if (!sheets.length) return `<div class="empty"><strong>Nenhuma ficha na mesa.</strong>Crie ou importe personagens primeiro.</div>`;
+    return `<div class="session-head"><div><div class="eyebrow">Controle rápido</div><h2 class="card-title">Sessão ao vivo</h2><p class="card-copy">PV, recursos e última rolagem sem precisar abrir ficha por ficha.</p></div><button class="btn" data-action="refresh-online">Atualizar</button></div>
+      <div class="session-grid">${sheets.map(s => {
+        const last = (c.logs || []).find(l => l.character === s.name);
+        const pct = Math.max(0, Math.min(100, (s.combat.hp / Math.max(1,s.combat.hpMax))*100));
+        return `<article class="session-card">
+          <div class="session-card-top">${renderCharacterAvatar(s,'mini-avatar')}<div class="session-name"><strong>${esc(s.name)}</strong><span>${esc(s.ownerName || 'Sem jogador')}</span></div><button class="btn small" data-action="master-open-sheet" data-mode="play" data-sheet="${s.id}">Abrir</button></div>
+          <div class="session-hp"><div class="flex between"><span>PV</span><strong>${s.combat.hp}/${s.combat.hpMax}</strong></div><div class="mini-track"><div class="mini-fill" style="width:${pct}%"></div></div></div>
+          <div class="session-hp-actions">
+            ${[-5,-1,1,5].map(delta=>`<button class="btn small ${delta<0?'danger':''}" data-action="master-quick-hp" data-sheet="${s.id}" data-delta="${delta}">${delta>0?'+':''}${delta}</button>`).join('')}
+          </div>
+          <div class="session-resources"><span>PH <b>${s.reserves.heroPoints}</b></span><span>PM <b>${s.reserves.magicPoints}</b></span><span>Perícia <b>${s.reserves.skillPoints}</b></span></div>
+          <div class="session-last-roll">${last ? `<span>Último teste</span><strong>${esc(last.label)} · ${last.roll}/${last.target}</strong><b class="${rollResultClass(last.result)}">${esc(last.result)}</b>` : '<span>Sem rolagens ainda</span>'}</div>
+        </article>`;
+      }).join('')}</div>`;
+  }
+
+  function renderActivityHistory(c) {
+    if (!online.features.history) return `<div class="empty"><strong>Histórico ainda não ativado no banco.</strong>Rode o SQL da v11 no Supabase para liberar esta aba.</div>`;
+    const rows = c.history || [];
+    if (!rows.length) return `<div class="empty"><strong>Nenhuma alteração rápida registrada.</strong>Ajustes de PV e pontos feitos pelo painel do mestre aparecerão aqui.</div>`;
+    return `<div class="activity-list">${rows.map(row => `<article class="activity-item ${row.undoneAt?'undone':''}"><div><div class="activity-title">${esc(row.character)} · ${esc(row.summary)}</div><div class="activity-meta">${esc(row.actor)} · ${new Date(row.at).toLocaleString('pt-BR')}</div></div>${row.undoneAt?'<span class="pill">Desfeito</span>':`<button class="btn small" data-action="history-undo" data-id="${row.id}">Desfazer</button>`}</article>`).join('')}</div>`;
+  }
+
+  function roomBackupPayload(c) {
+    return {
+      schema: 'fichas-daemon-room',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      room: {
+        name: c.name,
+        rules: cloneJson(c.rules || {}),
+        library: cloneJson(c.library || []).map(item => ({ title:item.title, category:item.category, body:item.body, isPublic:item.isPublic }))
+      },
+      characters: Object.values(c.sheets || {}).map(s => portableCharacter(s))
+    };
+  }
+
+  function exportRoomBackup() {
+    const c = campaign(); if (!c?.isMaster) return;
+    downloadText(`backup-mesa-${slugFile(c.name)}.json`, JSON.stringify(roomBackupPayload(c), null, 2));
+    toast('Backup completo da mesa criado.');
+  }
+
+  function openRestoreBackup() {
+    if (!online.ready) return toast('A restauração completa precisa do modo online.');
+    modal({title:'Restaurar backup',copy:'Por segurança, o backup será restaurado como uma NOVA mesa. A mesa atual não será sobrescrita.',body:`<form class="form" id="restore-room-form"><div class="field"><label class="label">Arquivo de backup</label><input class="input" id="room-backup-file-input" type="file" accept=".json,application/json"></div><div class="field"><label class="label">Ou cole o backup</label><textarea class="textarea json-textarea" id="room-backup-text" name="json" required></textarea></div><div class="field"><label class="label">Seu nome como mestre</label><input class="input" name="master" value="${esc(campaign()?.masterName || 'Mestre')}" required></div><button class="btn primary" type="submit">Criar nova mesa a partir do backup</button></form>`});
+  }
+
+  async function restoreRoomBackup(parsed, masterName) {
+    if (!parsed || parsed.schema !== 'fichas-daemon-room' || !parsed.room || !Array.isArray(parsed.characters)) throw new Error('Esse arquivo não é um backup completo de mesa.');
+    const name = `${String(parsed.room.name || 'Mesa restaurada')} · restaurada`;
+    const { data, error } = await online.client.rpc('create_room', { _name: name, _display_name: masterName || 'Mestre' });
+    if (error) throw error;
+    const created = Array.isArray(data) ? data[0] : data;
+    if (!created?.room_id) throw new Error('Não consegui criar a nova mesa.');
+    const roomId = created.room_id;
+    if (parsed.room.rules) {
+      const { error: ruleError } = await online.client.from('rooms').update({ rules: parsed.room.rules }).eq('id', roomId);
+      if (ruleError) throw ruleError;
+    }
+    for (const character of parsed.characters.slice(0, 100)) {
+      const characterId = await createOnlineCharacter(roomId, 'Aguardando jogador', String(character?.name || 'Personagem'), null, true);
+      const draft = newSheet('Aguardando jogador', String(character?.name || 'Personagem'), roomId);
+      draft.id = characterId;
+      draft.ownerDeviceId = null;
+      const currentCampaignId = ui.campaignId, currentSheetId = ui.sheetId;
+      const tempCampaign = state.campaigns[roomId] || {id:roomId,sheets:{}};
+      tempCampaign.sheets[characterId] = draft;
+      state.campaigns[roomId] = tempCampaign;
+      ui.campaignId = roomId; ui.sheetId = characterId;
+      applyImportedCharacter(character, {importOwner:false});
+      const imported = sheet();
+      imported.ownerDeviceId = null; imported.ownerName = 'Aguardando jogador';
+      await persistSheetOnline(imported, roomId);
+      ui.campaignId = currentCampaignId; ui.sheetId = currentSheetId;
+    }
+    if (online.features.library && Array.isArray(parsed.room.library) && parsed.room.library.length) {
+      const rows = parsed.room.library.slice(0,300).map(item => ({
+        room_id: roomId,
+        created_by: online.user.id,
+        title: String(item.title || 'Registro').slice(0,120),
+        category: String(item.category || 'Outro').slice(0,40),
+        body: String(item.body || ''),
+        is_public: item.isPublic !== false
+      }));
+      const { error: libError } = await online.client.from('room_library').insert(rows);
+      if (libError) throw libError;
+    }
+    await hydrateOnlineState();
+    ui.role='master'; ui.campaignId=roomId; ui.sheetId=null; ui.masterTab='overview';
+    renderMasterDashboard();
+  }
+
+
   function campaign() { return state.campaigns[ui.campaignId] || null; }
   function sheet() { const c = campaign(); return c?.sheets?.[ui.sheetId] || null; }
 
@@ -1113,6 +1359,7 @@
         </button>
         <div class="top-actions">
           ${ui.role ? `<span class="pill gold hide-mobile">${ui.role === 'master' ? 'Mestre' : 'Jogador'}</span>` : ''}
+          ${ui.campaignId ? '<button class="btn ghost small" data-action="open-library">Biblioteca</button>' : ''}
           <button class="btn ghost small" data-action="go-hub">Trocar perfil</button>
         </div>
       </header>`;
@@ -1143,6 +1390,7 @@
             </button>
           </div>
           <div class="hub-foot">${esc(onlineStatusLabel())}</div>
+          <div class="flex center gap8 mt16"><button class="btn ghost small" data-action="install-app">Instalar como app</button></div>
         </div>
       </main>`;
   }
@@ -1261,6 +1509,7 @@
               <button class="btn" data-action="import-json">Importar JSON</button>
               <button class="btn" data-action="preview-json">Exportar JSON</button>
               <button class="btn" data-action="quick-roll">Rolar d100</button>
+              <button class="btn" data-action="open-library">Biblioteca</button>
             </div>
           </div>
           <div class="page-head sheet-page-head">
@@ -1346,7 +1595,7 @@
         <main class="content game-content">
           <div class="sheet-toolbar game-toolbar">
             <div class="flex gap8 wrap">${renderSheetBackButton()}${renderSheetModeSwitch()}</div>
-            <button class="btn" data-action="quick-roll">Rolar d100</button>
+            <div class="flex gap8 wrap"><button class="btn" data-action="open-library">Biblioteca</button><button class="btn" data-action="quick-roll">Rolar d100</button></div>
           </div>
 
           <article class="game-sheet">
@@ -1563,11 +1812,11 @@
         <main class="content">
           <div class="page-head">
             <div><div class="eyebrow">Painel do mestre</div><h1 class="page-title">${esc(c.name)}</h1><p class="page-copy">Mestres ${esc((c.masterNames?.length ? c.masterNames : [c.masterName]).join(', '))} · ${sheets.length} ficha(s) na mesa.</p></div>
-            <div class="flex gap8 wrap"><button class="btn ghost" data-action="master-home">← Minhas mesas</button><button class="btn" data-action="master-create-sheet">+ Criar ficha</button><button class="btn" data-action="master-import-sheet">Importar JSON pronta</button><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Convite ${esc(c.code)}</button></div>
+            <div class="flex gap8 wrap"><button class="btn ghost" data-action="master-home">← Minhas mesas</button><button class="btn" data-action="master-create-sheet">+ Criar ficha</button><button class="btn" data-action="master-import-sheet">Importar JSON pronta</button><button class="btn" data-action="export-room-backup">Backup</button><button class="btn" data-action="restore-room-backup">Restaurar</button><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Convite ${esc(c.code)}</button></div>
           </div>
           <div class="master-layout">
             <nav class="master-nav">
-              ${[['overview','Visão geral'],['players','Fichas'],['team','Mestres'],['rules','Regras'],['history','Rolagens']].map(([k,n]) => `<button class="btn ${ui.masterTab===k?'active':''}" data-action="master-tab" data-tab="${k}">${n}</button>`).join('')}
+              ${[['overview','Visão geral'],['session','Sessão'],['players','Fichas'],['library','Biblioteca'],['team','Mestres'],['rules','Regras'],['history','Rolagens'],['activity','Atividade']].map(([k,n]) => `<button class="btn ${ui.masterTab===k?'active':''}" data-action="master-tab" data-tab="${k}">${n}</button>`).join('')}
             </nav>
             <section>${renderMasterTab(c,sheets)}</section>
           </div>
@@ -1583,10 +1832,13 @@
       <div class="card gold-edge"><div class="flex between center gap12 wrap"><div><div class="eyebrow">Convite da mesa</div><h2 class="card-title">Código ${esc(c.code)}</h2><p class="card-copy">Passe o código para os jogadores entrarem. Depois vincule cada um à ficha que você já preparou.</p></div><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Copiar código</button></div></div>
       <div class="mt16">${renderPlayers(c,sheets)}</div>`;
     }
+    if (ui.masterTab === 'session') return renderSessionPanel(c,sheets);
     if (ui.masterTab === 'players') return renderPlayers(c,sheets,true);
+    if (ui.masterTab === 'library') return renderLibraryManager(c);
     if (ui.masterTab === 'team') return renderMasterTeam(c);
     if (ui.masterTab === 'rules') return renderRules(c);
     if (ui.masterTab === 'history') return renderHistory(c);
+    if (ui.masterTab === 'activity') return renderActivityHistory(c);
   }
 
   function renderPlayers(c,sheets,full=false) {
@@ -1640,8 +1892,7 @@
   }
 
   function renderHistory(c) {
-    if (!c.logs.length) return `<div class="empty"><strong>Nenhuma rolagem registrada.</strong>Os testes feitos nas fichas aparecem aqui.</div>`;
-    return `<div class="table-wrap"><table class="table"><thead><tr><th>Personagem</th><th>Teste</th><th>Rolagem</th><th>Alvo</th><th>Resultado</th><th>Hora</th></tr></thead><tbody>${c.logs.map(l => `<tr><td>${esc(l.character)}</td><td>${esc(l.label)}</td><td class="mono">${l.roll}</td><td class="mono">${l.target}%</td><td>${esc(l.result)}</td><td>${new Date(l.at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="flex between center gap12 wrap mb16"><div><div class="eyebrow">Rolagens da mesa</div><h2 class="card-title">Feed de testes</h2><p class="card-copy">Uma leitura mais rápida dos últimos resultados, sem transformar isso num painel exagerado.</p></div><span class="pill">${c.logs.length} registradas</span></div>${renderRollFeed(c, 100)}`;
   }
 
   function doRoll(label,target) {
@@ -1746,12 +1997,32 @@
     if (action === 'player-home') return renderPlayerLobby();
     if (action === 'master-home') return renderMasterLobby();
     if (action === 'join-table') return openJoinTable();
+    if (action === 'open-library') return openLibraryModal();
+    if (action === 'install-app') {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.finally(()=>{ deferredInstallPrompt=null; });
+      } else {
+        toast('No celular, use o menu do navegador e escolha “Adicionar à tela inicial” ou “Instalar app”.');
+      }
+      return;
+    }
     if (action === 'edit-avatar') return openAvatarModal();
     if (action === 'rename-character') return openRenameCharacter();
     if (action === 'remove-avatar') { const s=sheet(); if(!s)return; s.photoData=''; s.updatedAt=Date.now(); saveState(); closeModal(); renderSheet(); toast('Foto removida.'); return; }
     if (action === 'create-table') return openCreateTable();
     if (action === 'master-create-sheet') return openMasterCreateSheet();
     if (action === 'master-import-sheet') return openMasterImportSheet();
+    if (action === 'export-room-backup') return exportRoomBackup();
+    if (action === 'restore-room-backup') return openRestoreBackup();
+    if (action === 'library-add') return openLibraryEntryModal();
+    if (action === 'library-edit') return openLibraryEntryModal(el.dataset.id);
+    if (action === 'library-delete') {
+      const c=campaign(); if(!c?.isMaster || !online.ready) return;
+      if(!confirm('Excluir este registro da biblioteca?')) return;
+      online.client.from('room_library').delete().eq('id',el.dataset.id).then(async ({error})=>{ if(error){toast(error.message);return;} await hydrateOnlineState();renderMasterDashboard();toast('Registro excluído.'); });
+      return;
+    }
     if (action === 'bind-player') return bindPlayerModal(el.dataset.sheet);
     if (action === 'unbind-player') {
       const c=campaign(); const s=c?.sheets?.[el.dataset.sheet]; if(!c||!s||!online.ready) return;
@@ -1798,8 +2069,12 @@
     if (action === 'add-upgrade') return promptSimple('Novo aprimoramento','Nome','Ex.: Contatos',(name,detail)=>{sheet().upgrades.push({name,detail});saveState();},'Nível, custo ou efeito');
     if (action === 'add-power') return promptSimple('Novo poder','Nome','Ex.: Sentidos ampliados',(name,detail)=>{sheet().powers.push({name,detail});saveState();},'Efeito');
     if (action === 'add-weakness') return promptSimple('Nova fraqueza','Nome','Ex.: Vulnerável à prata',(name,detail)=>{sheet().weaknesses.push({name,detail});saveState();},'Efeito');
-    if (action === 'hp-minus') { const s=sheet(); s.combat.hp=Math.max(0,s.combat.hp-1);s.updatedAt=Date.now();saveState();return renderSheet(); }
-    if (action === 'hp-plus') { const s=sheet(); s.combat.hp=Math.min(s.combat.hpMax,s.combat.hp+1);s.updatedAt=Date.now();saveState();return renderSheet(); }
+    if (action === 'hp-minus' || action === 'hp-plus') {
+      const s=sheet(); if(!s)return; const before=simpleHistorySnapshot(s); const old=s.combat.hp;
+      s.combat.hp=action==='hp-plus'?Math.min(s.combat.hpMax,s.combat.hp+1):Math.max(0,s.combat.hp-1);s.updatedAt=Date.now();saveState();renderSheet();
+      if(ui.role==='master' && s.combat.hp!==old) persistMasterChange(s, `PV ${old} → ${s.combat.hp}`, before, 'hp').catch(console.error);
+      return;
+    }
     if (action === 'resource-minus' || action === 'resource-plus') {
       const s=sheet(); const key=el.dataset.resource;
       if (!s?.reserves || !['heroPoints','magicPoints'].includes(key)) return;
@@ -1813,6 +2088,28 @@
     if (removeMap[action]) { const s=sheet(); const [parent,key]=removeMap[action]; const list=parent?s[parent][key]:s[key]; list.splice(Number(el.dataset.index),1);saveState();return renderSheet(); }
 
     if (action === 'master-tab') { ui.masterTab=el.dataset.tab; return renderMasterDashboard(); }
+    if (action === 'master-quick-hp') {
+      const c=campaign(); const target=c?.sheets?.[el.dataset.sheet]; if(!c?.isMaster || !target) return;
+      const delta=Number(el.dataset.delta)||0; const before=simpleHistorySnapshot(target); const old=target.combat.hp;
+      target.combat.hp=Math.max(0,Math.min(target.combat.hpMax,target.combat.hp+delta)); target.updatedAt=Date.now();
+      if(target.combat.hp===old) return;
+      saveState();
+      persistMasterChange(target, `PV ${old} → ${target.combat.hp}`, before, 'hp').then(()=>renderMasterDashboard()).catch(err=>toast(err.message));
+      renderMasterDashboard(); return;
+    }
+    if (action === 'history-undo') {
+      const c=campaign(); const row=(c?.history||[]).find(x=>x.id===String(el.dataset.id)); if(!c?.isMaster||!row||row.undoneAt||!online.ready)return;
+      const target=c.sheets?.[row.characterId]; if(!target)return toast('Ficha não encontrada.');
+      const before=row.before||{};
+      const update={};
+      ['hp_current','hp_max','hero_points','magic_points','skill_points','upgrade_points'].forEach(k=>{if(before[k]!=null)update[k]=before[k];});
+      online.client.from('characters').update(update).eq('id',target.id).then(async ({error})=>{
+        if(error){toast(error.message);return;}
+        const {error:histError}=await online.client.from('character_history').update({undone_at:new Date().toISOString(),undone_by:online.user.id}).eq('id',row.id);
+        if(histError){toast(histError.message);return;}
+        await hydrateOnlineState(); renderMasterDashboard(); toast('Alteração desfeita.');
+      }); return;
+    }
     if (action === 'master-open-sheet') { ui.sheetId=el.dataset.sheet; ui.role='master'; ui.sheetMode=el.dataset.mode || 'play'; return renderSheet(); }
     if (action === 'back-master-dashboard') { ui.sheetId=null; ui.role='master'; return renderMasterDashboard(); }
     if (action === 'give-points') return givePointsModal(campaign().sheets[el.dataset.sheet]);
@@ -1901,6 +2198,25 @@
       } catch(err) { toast(`Não consegui importar: ${err?.message || err}`); }
       return;
     }
+    if (form.id === 'library-entry-form') {
+      const c=campaign(); if(!c?.isMaster || !online.ready || !online.features.library) return;
+      const entryId=form.dataset.entry;
+      const payload={room_id:c.id,created_by:online.user.id,title:String(fd.get('title')||'').trim(),category:String(fd.get('category')||'Outro'),body:String(fd.get('body')||'').trim(),is_public:fd.get('isPublic')==='1'};
+      try {
+        const result=entryId?await online.client.from('room_library').update({title:payload.title,category:payload.category,body:payload.body,is_public:payload.is_public}).eq('id',entryId):await online.client.from('room_library').insert(payload);
+        if(result.error) throw result.error;
+        await hydrateOnlineState(); closeModal(); renderMasterDashboard(); toast(entryId?'Registro atualizado.':'Registro adicionado.');
+      } catch(err){toast(err?.message||String(err));}
+      return;
+    }
+    if (form.id === 'restore-room-form') {
+      try {
+        const parsed=JSON.parse(String(fd.get('json')||'').trim());
+        await restoreRoomBackup(parsed,String(fd.get('master')||'Mestre').trim());
+        closeModal(); toast('Backup restaurado em uma nova mesa.');
+      } catch(err){toast(`Não consegui restaurar: ${err?.message||err}`);}
+      return;
+    }
     if (form.id === 'bind-player-form') {
       const c=campaign(); const s=c?.sheets?.[form.dataset.sheet]; const userId=String(fd.get('userId')||'');
       if(!c||!s||!userId||!online.ready) return;
@@ -1958,10 +2274,16 @@
       const s=sheet(); ['hpMax','initiative','defense','armor','damageBonus'].forEach(k=>s.combat[k]=Number(fd.get(k))||0);s.combat.hp=Math.min(s.combat.hp,s.combat.hpMax);saveState();closeModal();renderSheet();return;
     }
     if (form.id === 'give-points-form') {
-      const c=campaign(); const s=c.sheets[form.dataset.sheet]; const type=fd.get('type'); const amount=Math.max(1,Number(fd.get('amount'))||1); s.reserves[type]=(s.reserves[type]||0)+amount;saveState(); if(online.ready) await persistSheetOnline(s,c.id); closeModal();toast(`${amount} ponto(s) concedido(s) a ${s.name}.`);renderMasterDashboard();return;
+      const c=campaign(); const s=c.sheets[form.dataset.sheet]; const before=simpleHistorySnapshot(s); const type=fd.get('type'); const amount=Math.max(1,Number(fd.get('amount'))||1); s.reserves[type]=(s.reserves[type]||0)+amount;saveState();
+      const labels={skillPoints:'perícia',upgradePoints:'aprimoramento',heroPoints:'heroicos',magicPoints:'magia'};
+      if(online.ready) await persistMasterChange(s, `+${amount} ponto(s) de ${labels[type]||type}`, before, 'points');
+      closeModal();toast(`${amount} ponto(s) concedido(s) a ${s.name}.`);renderMasterDashboard();return;
     }
     if (form.id === 'master-hp-form') {
-      const c=campaign(); const s=c.sheets[form.dataset.sheet];s.combat.hpMax=Math.max(1,Number(fd.get('hpMax'))||1);s.combat.hp=Math.max(0,Math.min(s.combat.hpMax,Number(fd.get('hp'))||0));saveState(); if(online.ready) await persistSheetOnline(s,c.id); closeModal();renderMasterDashboard();return;
+      const c=campaign(); const s=c.sheets[form.dataset.sheet]; const before=simpleHistorySnapshot(s); const oldHp=s.combat.hp, oldMax=s.combat.hpMax;
+      s.combat.hpMax=Math.max(1,Number(fd.get('hpMax'))||1);s.combat.hp=Math.max(0,Math.min(s.combat.hpMax,Number(fd.get('hp'))||0));saveState();
+      if(online.ready) await persistMasterChange(s, `PV ${oldHp}/${oldMax} → ${s.combat.hp}/${s.combat.hpMax}`, before, 'hp');
+      closeModal();renderMasterDashboard();return;
     }
   });
 
@@ -1975,6 +2297,14 @@
         s.photoData=dataUrl; s.updatedAt=Date.now(); saveState(); closeModal(); renderSheet(); toast('Foto do personagem atualizada.');
       } catch(err) { toast(err?.message || 'Não consegui usar essa imagem.'); }
       return;
+    }
+    if (target?.id === 'room-backup-file-input') {
+      const file=target.files?.[0]; if(!file)return;
+      if(file.size > 8*1024*1024){toast('Backup grande demais. Limite: 8 MB.');target.value='';return;}
+      const reader=new FileReader();
+      reader.onload=()=>{const area=document.querySelector('#room-backup-text');if(area)area.value=String(reader.result||'');};
+      reader.onerror=()=>toast('Não consegui ler esse backup.');
+      reader.readAsText(file,'utf-8'); return;
     }
     if (!['json-file-input','master-json-file-input'].includes(target?.id)) return;
     const file=target.files?.[0];
@@ -2033,6 +2363,15 @@
       online.pendingRefresh = false;
       setTimeout(scheduleOnlineRefresh, 80);
     }
+  });
+
+  window.addEventListener('beforeinstallprompt', event => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    toast('Fichas Daemon instalado.');
   });
 
   bootOnline();

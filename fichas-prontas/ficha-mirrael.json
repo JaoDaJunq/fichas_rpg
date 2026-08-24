@@ -1,0 +1,215 @@
+{
+  "schema": "fichas-daemon-character",
+  "version": 1,
+  "exportedAt": "2026-08-23T22:53:54.198584Z",
+  "character": {
+    "name": "Mirrael",
+    "ownerName": "",
+    "title": "",
+    "race": "",
+    "sect": "",
+    "kit": "",
+    "level": "2",
+    "fatalism": "",
+    "epicScale": "",
+    "concept": "",
+    "age": "20",
+    "profession": "",
+    "attributes": {
+      "con": 14,
+      "fr": 10,
+      "dex": 11,
+      "agi": 9,
+      "int": 17,
+      "will": 17,
+      "per": 14,
+      "car": 17
+    },
+    "skills": [
+      {
+        "category": "Ciências",
+        "name": "Filosofia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 20,
+        "combat": false
+      },
+      {
+        "category": "Ciências",
+        "name": "Psicologia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Ciências",
+        "name": "Teologia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 43,
+        "combat": false
+      },
+      {
+        "category": "Ciências Proibidas",
+        "name": "Alquimia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 14,
+        "combat": false
+      },
+      {
+        "category": "Ciências Proibidas",
+        "name": "Viagem Astral",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 6,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Esquiva",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 27,
+        "combat": true
+      },
+      {
+        "category": "Idiomas",
+        "name": "Idiomas",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 5,
+        "combat": false
+      },
+      {
+        "category": "Manipulação",
+        "name": "Manipulação",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 20,
+        "combat": false
+      },
+      {
+        "category": "Manipulação",
+        "name": "Impressionar",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Manipulação",
+        "name": "Lábia",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Manipulação",
+        "name": "Liderança",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 30,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Imobilização",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 20,
+        "combat": true
+      },
+      {
+        "category": "Pesquisa",
+        "name": "Pesquisa",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 10,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Procura",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 15,
+        "combat": false
+      },
+      {
+        "category": "Negociação",
+        "name": "Barganha",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 14,
+        "combat": false
+      },
+      {
+        "category": "Geral",
+        "name": "Luta às Cegas",
+        "baseValue": 0,
+        "spent": 0,
+        "value": 14,
+        "combat": true
+      }
+    ],
+    "creation": {
+      "skillBudgetGenerated": false,
+      "skillBudgetTotal": 270
+    },
+    "reserves": {
+      "skillPoints": 0,
+      "upgradePoints": 0,
+      "heroPoints": 0,
+      "magicPoints": 0
+    },
+    "combat": {
+      "hp": 13,
+      "hpMax": 13,
+      "initiative": 0,
+      "defense": 0,
+      "armor": 0,
+      "damageBonus": 0,
+      "attacks": []
+    },
+    "magic": [],
+    "inventory": [],
+    "upgrades": [
+      {
+        "name": "Espírito Santo (Anjo Guardião)",
+        "detail": "3 pontos"
+      },
+      {
+        "name": "Poderes Angélicos",
+        "detail": "2 pontos"
+      },
+      {
+        "name": "Pontos de Fé",
+        "detail": "3 pontos"
+      }
+    ],
+    "powers": [
+      {
+        "name": "Comunhão",
+        "detail": "Poder angelical, 1 ponto."
+      },
+      {
+        "name": "Benção",
+        "detail": "Poder angelical, anotado como 1."
+      }
+    ],
+    "weaknesses": [
+      {
+        "name": "Perda Terrível",
+        "detail": "Aprimoramento negativo, 1 ponto."
+      },
+      {
+        "name": "Código de Honra",
+        "detail": "Aprimoramento negativo, 1 ponto."
+      }
+    ],
+    "notes": "Força total 10 (9 + 1). Teologia mantida em 43 como valor atual. PH e IP estavam anotados como 0; PM não estava preenchido na ficha física."
+  }
+}

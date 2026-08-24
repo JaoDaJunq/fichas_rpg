@@ -1,58 +1,25 @@
-# Fichas Daemon v4
+# Fichas Daemon v11
 
-Aplicação estática pronta para GitHub Pages, sem build.
+Atualização segura em cima da v10.1.
 
-## O que mudou nesta versão
+## Novidades
+- Painel **Sessão** para o Mestre, com PV rápido, recursos e última rolagem.
+- **Biblioteca da mesa** com pistas, pessoas, lugares, criaturas e documentos; itens podem ser públicos ou só dos Mestres.
+- **Atividade** com histórico dos ajustes rápidos de PV/pontos e botão de desfazer.
+- Feed de **Rolagens** mais legível e compacto.
+- **Backup completo da mesa** e restauração sempre em uma nova mesa, evitando sobrescrever a atual.
+- **PWA**: manifest, service worker e ícones para instalar o site como app.
 
-Cada personagem agora possui duas visualizações usando os mesmos dados:
+## Arquivos do site
+Suba para a raiz do GitHub Pages:
+- index.html
+- styles.css
+- app.js
+- supabase-config.js
+- manifest.webmanifest
+- sw.js
+- pasta icons/
+- pasta fichas-prontas/ (opcional, pode manter)
 
-- **Modo de jogo:** ficha compacta para usar durante a sessão, inspirada na organização da ficha física do Trevas. Mostra atributos, perícias, combate, PV, reservas, aprimoramentos, magia, equipamentos, poderes, fraquezas e anotações sem campos de edição espalhados pela tela.
-- **Editar ficha:** mantém o gerenciador completo para alterar atributos, identidade, perícias, combate, inventário, magia, aprimoramentos e demais dados.
-
-No Modo de jogo:
-
-- tocar em uma perícia rola 1d100;
-- tocar em um atributo faz o teste pela regra da mesa;
-- ataques que tenham uma porcentagem escrita no detalhe (ex.: `55% · 1d10+2`) ganham botão de rolagem;
-- PV pode ser alterado rapidamente;
-- PH e PM possuem controles rápidos;
-- fichas antigas são atualizadas automaticamente com os novos campos de identidade.
-
-## Arquivos
-
-- `index.html`
-- `styles.css`
-- `app.js`
-
-## Publicar no GitHub Pages
-
-1. Substitua os três arquivos da versão anterior pelos arquivos desta pasta.
-2. Faça commit/push para a branch publicada no GitHub Pages.
-3. Recarregue o site. Se o navegador insistir em usar arquivos antigos, use `Ctrl + F5`.
-
-A chave de armazenamento continua a mesma da versão anterior, então as mesas e fichas já criadas no navegador continuam disponíveis.
-
-## Limitação atual
-
-Os dados continuam em `localStorage`. Abas do mesmo navegador sincronizam entre si, mas dispositivos diferentes ainda precisam de um banco online para compartilhar a mesma mesa em tempo real.
-
-
-## v6 - criação pelo livro
-
-- Catálogo de Perícias por grupos e subgrupos do Sistema Daemon/Trevas.
-- Valor-base de cada Perícia usa o Atributo correspondente ou 0% nas técnicas.
-- Idioma Nativo começa em 30%.
-- Perícia nova exige investimento mínimo de 10 pontos e permite até 50 pontos acima da base na criação.
-- Botão opcional calcula o orçamento inicial de Perícias por INT x 5 + Idade x 10, limitado a 500.
-- Catálogo de Aprimoramentos positivos e negativos integrado à ficha.
-
-## Importar e exportar fichas por JSON (v7)
-
-Na tela **Editar ficha** existem dois novos botões:
-
-- **Exportar JSON**: mostra o conteúdo portátil da ficha e permite baixar um arquivo `.json` ou copiar o texto.
-- **Importar JSON**: aceita um arquivo `.json` ou conteúdo colado e atualiza a ficha que estiver aberta.
-
-A importação preserva o identificador interno da ficha, a mesa atual e o dispositivo dono. Isso permite criar uma ficha vazia em outra mesa e importar os dados de um personagem sem levar junto o vínculo da campanha anterior.
-
-O pacote também inclui `ficha-jao-exemplo.json`, transcrito das fotos enviadas como exemplo para testar a importação. Campos manuscritos que não estavam legíveis o suficiente foram deixados de fora em vez de serem adivinhados.
+## Supabase
+Rode apenas `supabase-patch-v11.sql` depois das versões anteriores.

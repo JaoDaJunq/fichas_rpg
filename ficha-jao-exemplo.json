@@ -1,0 +1,87 @@
+{
+  "schema": "fichas-daemon-character",
+  "version": 1,
+  "exportedAt": "2026-08-23T19:17:00.000Z",
+  "character": {
+    "name": "Jão",
+    "ownerName": "",
+    "title": "",
+    "race": "",
+    "sect": "",
+    "kit": "Kit de perícia",
+    "level": "2",
+    "fatalism": "",
+    "epicScale": "",
+    "concept": "",
+    "age": "20",
+    "profession": "",
+    "attributes": {
+      "con": 14,
+      "fr": 13,
+      "dex": 14,
+      "agi": 15,
+      "int": 16,
+      "will": 13,
+      "per": 16,
+      "car": 17
+    },
+    "skills": [
+      { "category": "Armas Brancas", "name": "Arma Branca", "baseValue": 0, "spent": 0, "value": 45, "combat": true },
+      { "category": "Ciências", "name": "Direito / Jurisprudência", "baseValue": 0, "spent": 0, "value": 4, "combat": false },
+      { "category": "Ciências", "name": "Geografia", "baseValue": 0, "spent": 0, "value": 4, "combat": false },
+      { "category": "Ciências", "name": "Herbalismo", "baseValue": 0, "spent": 0, "value": 4, "combat": false },
+      { "category": "Ciências", "name": "Química", "baseValue": 0, "spent": 0, "value": 4, "combat": false },
+      { "category": "Geral", "name": "Esquiva", "baseValue": 0, "spent": 0, "value": 25, "combat": true },
+      { "category": "Esportes", "name": "Acrobacia", "baseValue": 0, "spent": 0, "value": 15, "combat": false },
+      { "category": "Esportes", "name": "Salto", "baseValue": 0, "spent": 0, "value": 9, "combat": false },
+      { "category": "Geral", "name": "Falsificação", "baseValue": 0, "spent": 0, "value": 15, "combat": false },
+      { "category": "Manipulação", "name": "Interrogatório", "baseValue": 0, "spent": 0, "value": 10, "combat": false },
+      { "category": "Manipulação", "name": "Intimidação", "baseValue": 0, "spent": 0, "value": 10, "combat": false },
+      { "category": "Manipulação", "name": "Liderança", "baseValue": 0, "spent": 0, "value": 10, "combat": false },
+      { "category": "Geral", "name": "Luta às Cegas", "baseValue": 0, "spent": 0, "value": 15, "combat": true },
+      { "category": "Geral", "name": "Sobrevivência", "baseValue": 0, "spent": 0, "value": 13, "combat": false }
+    ],
+    "creation": {
+      "skillBudgetGenerated": false,
+      "skillBudgetTotal": 0
+    },
+    "reserves": {
+      "skillPoints": 0,
+      "upgradePoints": 0,
+      "heroPoints": 0,
+      "magicPoints": 0
+    },
+    "combat": {
+      "hp": 14,
+      "hpMax": 14,
+      "initiative": 0,
+      "defense": 0,
+      "armor": 0,
+      "damageBonus": 0,
+      "attacks": [
+        { "name": "Katana", "detail": "1d10" }
+      ]
+    },
+    "magic": [
+      { "name": "Raio", "detail": "Anotação da ficha física; diagrama de magia com Controlar 1, Entender e Criar." }
+    ],
+    "inventory": [
+      { "name": "Mochila", "detail": "" },
+      { "name": "Katana", "detail": "1d10" },
+      { "name": "Kit de perícia", "detail": "" },
+      { "name": "Dinheiro", "detail": "R$ 200,00" },
+      { "name": "Canivete", "detail": "" },
+      { "name": "Papel estranho", "detail": "" }
+    ],
+    "upgrades": [
+      { "name": "Afinidade com Magia", "detail": "1 ponto" },
+      { "name": "Alma Pura", "detail": "2 pontos" },
+      { "name": "Capaz de Enxergar Auras", "detail": "1 ponto" },
+      { "name": "Sensitivo", "detail": "2 pontos" },
+      { "name": "Sentidos Aguçados", "detail": "1 ponto" }
+    ],
+    "powers": [],
+    "weaknesses": [],
+    "notes": "Base transcrita das fotos da ficha física de 22/08/2026. Alguns campos manuscritos menos legíveis ficaram de fora para evitar inventar informação. Mora sozinho."
+  }
+}
