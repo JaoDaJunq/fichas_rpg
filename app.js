@@ -30,7 +30,7 @@
   }
 
   function onlineStatusLabel() {
-    if (online.ready) return '● Online · mesa sincronizada pelo Supabase';
+    if (online.ready) return '● Online · Supabase · v9';
     if (online.enabled && online.error) return `● Supabase indisponível: ${online.error}`;
     if (online.enabled) return '● Conectando ao Supabase…';
     return '● Modo local';
@@ -61,7 +61,7 @@
     normalizeSheet(s);
     return {
       room_id: roomId,
-      owner_id: s.ownerDeviceId || currentOwnerId(),
+      owner_id: s.ownerDeviceId === null ? null : (s.ownerDeviceId || currentOwnerId()),
       name: s.name || 'Novo personagem',
       level: Math.max(1, Number(String(s.level || '').match(/\d+/)?.[0] || 1)),
       hp_current: Math.max(0, Number(s.combat?.hp) || 0),
@@ -117,10 +117,11 @@
     if (error) console.error('Falha ao salvar rolagem:', error);
   }
 
-  async function createOnlineCharacter(roomId, ownerName, characterName, ownerId = online.user?.id) {
-    if (!online.ready || !roomId || !ownerId) throw new Error('Supabase não conectado.');
-    const draft = newSheet(ownerName, characterName, roomId);
-    draft.ownerDeviceId = ownerId;
+  async function createOnlineCharacter(roomId, ownerName, characterName, ownerId = online.user?.id, allowUnassigned = false) {
+    if (!online.ready || !roomId) throw new Error('Supabase não conectado.');
+    if (!ownerId && !allowUnassigned) throw new Error('Jogador não identificado.');
+    const draft = newSheet(ownerName || (ownerId ? 'Jogador' : 'Aguardando jogador'), characterName, roomId);
+    draft.ownerDeviceId = ownerId || null;
     const row = sheetRow(draft, roomId);
     const { data, error } = await online.client
       .from('characters')
@@ -171,6 +172,7 @@
         masterId: r.master_id,
         isMaster: r.master_id === online.user.id,
         rules: { ...defaultRules(), ...(r.rules || {}) },
+        members: members.filter(m => m.room_id === r.id),
         sheets: {},
         logs: [],
         createdAt: Date.parse(r.created_at || '') || Date.now()
@@ -186,8 +188,8 @@
         ...d,
         id: row.id,
         campaignId: row.room_id,
-        ownerDeviceId: row.owner_id,
-        ownerName: d.ownerName || member?.display_name || 'Jogador',
+        ownerDeviceId: row.owner_id ?? null,
+        ownerName: member?.display_name || d.ownerName || (row.owner_id ? 'Jogador' : 'Aguardando jogador'),
         name: row.name || d.name || 'Personagem',
         level: d.level || String(row.level || 1),
         isLocked: Boolean(row.locked),
@@ -274,6 +276,7 @@
       online.ready = true;
       await hydrateOnlineState();
       subscribeOnline();
+      setInterval(() => { if (online.ready) scheduleOnlineRefresh(); }, 7000);
       renderHub();
     } catch (err) {
       online.error = err?.message || String(err);
@@ -366,6 +369,7 @@
     target.campaigns ||= {};
     Object.values(target.campaigns).forEach(c => {
       c.rules = { ...defaultRules(), ...(c.rules || {}) };
+      c.members ||= [];
       c.sheets ||= {};
       c.logs ||= [];
       Object.values(c.sheets).forEach(normalizeSheet);
@@ -457,6 +461,7 @@
       masterName: masterName || 'Mestre',
       masterPin: String(pin || '1234'),
       rules: defaultRules(),
+      members: [],
       sheets: {},
       logs: [],
       createdAt: Date.now()
@@ -1079,18 +1084,34 @@
     return result.sort((a,b) => b.sheet.updatedAt - a.sheet.updatedAt);
   }
 
+  function myWaitingRooms() {
+    if (!online.ready) return [];
+    const ownedRoomIds = new Set(mySheets().map(x => x.campaign.id));
+    return Object.values(state.campaigns).filter(c => {
+      if (c.isMaster || ownedRoomIds.has(c.id)) return false;
+      return (c.members || []).some(m => m.user_id === currentOwnerId() && m.role === 'player');
+    });
+  }
+
   function renderPlayerLobby() {
     reloadState();
     ui.role = 'player';
     const sheets = mySheets();
+    const waitingRooms = myWaitingRooms();
     app.innerHTML = `
       <div class="shell">
         ${topbar('Área do jogador')}
         <main class="content">
           <div class="page-head">
-            <div><div class="eyebrow">Área do jogador</div><h1 class="page-title">Suas fichas</h1><p class="page-copy">Continue um personagem sincronizado ou entre em uma nova mesa pelo código.</p></div>
+            <div><div class="eyebrow">Área do jogador</div><h1 class="page-title">Suas fichas</h1><p class="page-copy">Entre na mesa pelo código. O mestre pode deixar sua ficha pronta e vinculá-la a você.</p></div>
             <button class="btn primary" data-action="join-table">+ Entrar em mesa</button>
           </div>
+          ${waitingRooms.length ? `<div class="grid two mb16">${waitingRooms.map(c => `
+            <article class="card gold-edge">
+              <div class="flex between center gap12"><div><div class="eyebrow">Aguardando ficha</div><h2 class="card-title">${esc(c.name)}</h2><p class="card-copy">Você já entrou na mesa. O mestre só precisa vincular seu personagem.</p></div><span class="pill gold">Aguardando</span></div>
+              <div class="sep"></div>
+              <div class="flex between center gap8 wrap"><span class="small-text muted">Código ${esc(c.code)}</span><button class="btn small" data-action="refresh-online">Atualizar</button></div>
+            </article>`).join('')}</div>` : ''}
           ${sheets.length ? `<div class="grid two">${sheets.map(({campaign:c,sheet:s}) => `
             <article class="card gold-edge">
               <div class="flex between center gap12">
@@ -1102,8 +1123,8 @@
                 <span class="small-text muted">${s.reserves.skillPoints} pts. de perícia · ${s.reserves.upgradePoints} aprim.</span>
                 <div class="flex gap8 wrap"><button class="btn primary small" data-action="open-sheet" data-mode="play" data-campaign="${c.id}" data-sheet="${s.id}">Jogar</button><button class="btn small" data-action="open-sheet" data-mode="edit" data-campaign="${c.id}" data-sheet="${s.id}">Editar</button></div>
               </div>
-            </article>`).join('')}</div>` : `
-            <div class="empty"><strong>Você ainda não possui uma ficha online.</strong>Entre em uma mesa pelo código de convite para criar seu primeiro personagem.<div class="mt16"><button class="btn primary" data-action="join-table">Entrar em mesa</button></div></div>`}
+            </article>`).join('')}</div>` : (!waitingRooms.length ? `
+            <div class="empty"><strong>Você ainda não entrou em nenhuma mesa.</strong>Use o código do mestre. Depois ele pode vincular uma ficha já pronta ao seu usuário.<div class="mt16"><button class="btn primary" data-action="join-table">Entrar em mesa</button></div></div>` : '')}
         </main>
       </div>`;
   }
@@ -1464,7 +1485,7 @@
         <main class="content">
           <div class="page-head">
             <div><div class="eyebrow">Painel do mestre</div><h1 class="page-title">${esc(c.name)}</h1><p class="page-copy">Mestre ${esc(c.masterName)} · ${sheets.length} ficha(s) na mesa.</p></div>
-            <div class="flex gap8 wrap"><button class="btn ghost" data-action="master-home">Minhas mesas</button><button class="btn" data-action="master-create-sheet">+ Criar ficha</button><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Convite ${esc(c.code)}</button></div>
+            <div class="flex gap8 wrap"><button class="btn ghost" data-action="master-home">Minhas mesas</button><button class="btn" data-action="master-create-sheet">+ Criar ficha</button><button class="btn" data-action="master-import-sheet">Importar JSON pronta</button><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Convite ${esc(c.code)}</button></div>
           </div>
           <div class="master-layout">
             <nav class="master-nav">
@@ -1479,9 +1500,9 @@
   function renderMasterTab(c,sheets) {
     if (ui.masterTab === 'overview') {
       const totalHp = sheets.reduce((sum,s)=>sum+Math.max(0,s.combat.hp),0);
-      const totalMax = sheets.reduce((sum,s)=>sum+s.combat.hpMax,0);
-      return `<div class="kpi-grid"><div class="kpi"><div class="kpi-label">Jogadores</div><div class="kpi-value">${sheets.length}</div></div><div class="kpi"><div class="kpi-label">PV atual</div><div class="kpi-value">${totalHp}</div></div><div class="kpi"><div class="kpi-label">PV máximo</div><div class="kpi-value">${totalMax}</div></div><div class="kpi"><div class="kpi-label">Rolagens</div><div class="kpi-value">${c.logs.length}</div></div></div>
-      <div class="card gold-edge"><div class="flex between center gap12 wrap"><div><div class="eyebrow">Convite da mesa</div><h2 class="card-title">Código ${esc(c.code)}</h2><p class="card-copy">Passe este código para os jogadores criarem a ficha dentro da mesa.</p></div><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Copiar código</button></div></div>
+      const joinedPlayers = (c.members || []).filter(m => m.role === 'player').length;
+      return `<div class="kpi-grid"><div class="kpi"><div class="kpi-label">Jogadores na sala</div><div class="kpi-value">${joinedPlayers}</div></div><div class="kpi"><div class="kpi-label">Fichas</div><div class="kpi-value">${sheets.length}</div></div><div class="kpi"><div class="kpi-label">PV atual</div><div class="kpi-value">${totalHp}</div></div><div class="kpi"><div class="kpi-label">Rolagens</div><div class="kpi-value">${c.logs.length}</div></div></div>
+      <div class="card gold-edge"><div class="flex between center gap12 wrap"><div><div class="eyebrow">Convite da mesa</div><h2 class="card-title">Código ${esc(c.code)}</h2><p class="card-copy">Passe o código para os jogadores entrarem. Depois vincule cada um à ficha que você já preparou.</p></div><button class="btn primary" data-action="copy-code" data-code="${esc(c.code)}">Copiar código</button></div></div>
       <div class="mt16">${renderPlayers(c,sheets)}</div>`;
     }
     if (ui.masterTab === 'players') return renderPlayers(c,sheets,true);
@@ -1490,13 +1511,19 @@
   }
 
   function renderPlayers(c,sheets,full=false) {
-    if (!sheets.length) return `<div class="empty"><strong>Ninguém entrou ainda.</strong>Compartilhe o código <span class="mono gold">${esc(c.code)}</span> ou crie uma ficha manualmente para testar o sistema.<div class="mt16"><button class="btn primary" data-action="master-create-sheet">+ Criar primeira ficha</button></div></div>`;
-    return `<div class="player-grid">${sheets.map(s => {
+    const playerMembers = (c.members || []).filter(m => m.role === 'player');
+    const assignedIds = new Set(sheets.map(s => s.ownerDeviceId).filter(Boolean));
+    const waiting = playerMembers.filter(m => !assignedIds.has(m.user_id));
+    const waitingBlock = waiting.length ? `<div class="card mb16"><div class="eyebrow">Jogadores aguardando ficha</div><h2 class="card-title">${waiting.length} esperando vínculo</h2><div class="list mt12">${waiting.map(m => `<div class="list-item"><div class="list-main"><div class="list-title">${esc(m.display_name || 'Jogador')}</div><div class="list-sub">Entrou na mesa e ainda não possui personagem.</div></div><span class="pill gold">Aguardando</span></div>`).join('')}</div></div>` : '';
+    if (!sheets.length) return `${waitingBlock}<div class="empty"><strong>Nenhuma ficha preparada ainda.</strong>Crie uma ficha vazia ou importe um dos JSONs prontos. Depois vincule ao jogador que entrar com o código <span class="mono gold">${esc(c.code)}</span>.<div class="mt16 flex gap8 wrap"><button class="btn primary" data-action="master-import-sheet">Importar JSON pronta</button><button class="btn" data-action="master-create-sheet">+ Criar ficha vazia</button></div></div>`;
+    return `${waitingBlock}<div class="player-grid">${sheets.map(s => {
       const pct = Math.max(0,Math.min(100,(s.combat.hp/Math.max(1,s.combat.hpMax))*100));
-      return `<article class="player-card"><div class="player-card-head"><div><div class="player-name">${esc(s.name)}</div><div class="player-owner">Jogador: ${esc(s.ownerName)}</div></div><span class="pill ${pct<30?'red':pct<65?'gold':'green'}">${s.combat.hp}/${s.combat.hpMax} PV</span></div>
-      <div class="mini-hp"><div class="mini-hp-line"><span>Vida</span><span>${Math.round(pct)}%</span></div><div class="mini-track"><div class="mini-fill" style="width:${pct}%"></div></div></div>
+      const member = playerMembers.find(m => m.user_id === s.ownerDeviceId);
+      const assigned = Boolean(s.ownerDeviceId);
+      return `<article class="player-card"><div class="player-card-head"><div><div class="player-name">${esc(s.name)}</div><div class="player-owner">${assigned ? `Jogador: ${esc(member?.display_name || s.ownerName || 'Vinculado')}` : 'Sem jogador vinculado'}</div></div><span class="pill ${assigned ? 'green' : 'gold'}">${assigned ? 'Vinculada' : 'Aguardando jogador'}</span></div>
+      <div class="mini-hp"><div class="mini-hp-line"><span>Vida</span><span>${s.combat.hp}/${s.combat.hpMax} PV</span></div><div class="mini-track"><div class="mini-fill" style="width:${pct}%"></div></div></div>
       ${full ? `<div class="stat-grid mt12" style="grid-template-columns:1fr 1fr"><div class="stat"><div class="stat-label">Pts perícia</div><div class="stat-value">${s.reserves.skillPoints}</div></div><div class="stat"><div class="stat-label">Pts aprim.</div><div class="stat-value">${s.reserves.upgradePoints}</div></div></div>` : ''}
-      <div class="player-actions"><button class="btn primary small" data-action="master-open-sheet" data-mode="play" data-sheet="${s.id}">Modo de jogo</button><button class="btn small" data-action="master-open-sheet" data-mode="edit" data-sheet="${s.id}">Editar ficha</button><button class="btn success small" data-action="give-points" data-sheet="${s.id}">Dar pontos</button><button class="btn small" data-action="master-hp" data-sheet="${s.id}">Ajustar PV</button></div></article>`;
+      <div class="player-actions"><button class="btn primary small" data-action="master-open-sheet" data-mode="play" data-sheet="${s.id}">Modo de jogo</button><button class="btn small" data-action="master-open-sheet" data-mode="edit" data-sheet="${s.id}">Editar ficha</button>${online.ready ? (assigned ? `<button class="btn small" data-action="bind-player" data-sheet="${s.id}">Trocar jogador</button><button class="btn danger small" data-action="unbind-player" data-sheet="${s.id}">Desvincular</button>` : `<button class="btn success small" data-action="bind-player" data-sheet="${s.id}">Vincular jogador</button>`) : ''}<button class="btn success small" data-action="give-points" data-sheet="${s.id}">Dar pontos</button><button class="btn small" data-action="master-hp" data-sheet="${s.id}">Ajustar PV</button></div></article>`;
     }).join('')}</div>`;
   }
 
@@ -1542,12 +1569,25 @@
 
   function openJoinTable() {
     reloadState();
-    modal({ title:'Entrar em uma mesa', copy:'Use o código enviado pelo mestre. Sua ficha será criada diretamente na mesa online.', body:`<form class="form" id="join-form"><div class="field"><label class="label">Código da mesa</label><input class="input mono" name="code" maxlength="6" autocomplete="off" placeholder="ABC123" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar ficha e entrar</button><div class="hint">Pode abrir em outro celular ou computador: todos usam a mesma mesa do Supabase.</div></form>` });
+    modal({ title:'Entrar em uma mesa', copy:'Use o código enviado pelo mestre. Você entra primeiro na sala; depois o mestre vincula sua ficha pronta.', body:`<form class="form" id="join-form"><div class="field"><label class="label">Código da mesa</label><input class="input mono" name="code" maxlength="6" autocomplete="off" placeholder="ABC123" required></div><div class="field"><label class="label">Seu nome</label><input class="input" name="owner" placeholder="Ex.: Kauan" required></div><button class="btn primary" type="submit">Entrar na mesa</button><div class="hint">Depois do vínculo, somente você e o mestre recebem sua ficha pelo Supabase.</div></form>` });
   }
 
   function openMasterCreateSheet() {
     const c = campaign(); if (!c) return;
-    modal({ title:'Criar ficha na mesa', copy:'Cria uma ficha vinculada à conta do mestre. Para uma ficha realmente pertencente ao jogador, prefira que ele entre pelo código da mesa.', body:`<form class="form" id="master-create-sheet-form"><div class="field"><label class="label">Nome do jogador</label><input class="input" name="owner" placeholder="Ex.: João" required></div><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Dante Ferraz" required></div><button class="btn primary" type="submit">Criar e abrir ficha</button></form>` });
+    modal({ title:'Criar ficha sem jogador', copy:'A ficha fica pronta na mesa e invisível para os jogadores até você vinculá-la.', body:`<form class="form" id="master-create-sheet-form"><div class="field"><label class="label">Nome do personagem</label><input class="input" name="character" placeholder="Ex.: Jin" required></div><button class="btn primary" type="submit">Criar ficha e editar</button></form>` });
+  }
+
+  function openMasterImportSheet() {
+    const c = campaign(); if (!c) return;
+    modal({ title:'Importar ficha pronta', copy:'Importe um JSON antes do jogador entrar. A ficha ficará sem dono até você vinculá-la.', body:`<form class="form" id="master-import-sheet-form"><div class="field"><label class="label">Arquivo JSON</label><input class="input" id="master-json-file-input" type="file" accept=".json,application/json"></div><div class="field"><label class="label">Ou cole o JSON</label><textarea class="textarea json-textarea" id="master-json-import-text" name="json" placeholder='{"schema":"fichas-daemon-character", ...}' required></textarea></div><button class="btn primary" type="submit">Criar ficha com este JSON</button></form>` });
+  }
+
+  function bindPlayerModal(sheetId) {
+    const c = campaign(); const s = c?.sheets?.[sheetId]; if (!c || !s) return;
+    const assignedIds = new Set(Object.values(c.sheets || {}).filter(x => x.id !== s.id).map(x => x.ownerDeviceId).filter(Boolean));
+    const players = (c.members || []).filter(m => m.role === 'player' && !assignedIds.has(m.user_id));
+    if (!players.length) { toast('Nenhum jogador disponível. Peça para ele entrar na mesa pelo código primeiro.'); return; }
+    modal({ title:`Vincular ${esc(s.name)}`, copy:'Escolha qual jogador desta sala receberá a ficha. A mudança aparece no celular dele.', body:`<form class="form" id="bind-player-form" data-sheet="${s.id}"><div class="field"><label class="label">Jogador</label><select class="select" name="userId" required>${players.map(m => `<option value="${esc(m.user_id)}" ${m.user_id===s.ownerDeviceId?'selected':''}>${esc(m.display_name || 'Jogador')}</option>`).join('')}</select></div><button class="btn primary" type="submit">Vincular ficha</button></form>` });
   }
 
   function openCreateTable() {
@@ -1614,6 +1654,13 @@
     if (action === 'join-table') return openJoinTable();
     if (action === 'create-table') return openCreateTable();
     if (action === 'master-create-sheet') return openMasterCreateSheet();
+    if (action === 'master-import-sheet') return openMasterImportSheet();
+    if (action === 'bind-player') return bindPlayerModal(el.dataset.sheet);
+    if (action === 'unbind-player') {
+      const c=campaign(); const s=c?.sheets?.[el.dataset.sheet]; if(!c||!s||!online.ready) return;
+      online.client.from('characters').update({ owner_id:null }).eq('id',s.id).then(async ({error})=>{ if(error){toast(`Não consegui desvincular: ${error.message}`);return;} await hydrateOnlineState(); toast(`${s.name} ficou sem jogador.`); renderMasterDashboard(); }); return;
+    }
+    if (action === 'refresh-online') { if(!online.ready)return; hydrateOnlineState().then(()=>renderCurrentViewAfterSync()).catch(err=>toast(err.message)); return; }
     if (action === 'copy-code') { navigator.clipboard?.writeText(el.dataset.code); toast(`Código ${el.dataset.code} copiado.`); return; }
     if (action === 'master-login') return openMasterLogin(el.dataset.campaign);
     if (action === 'open-sheet') { ui.campaignId=el.dataset.campaign; ui.sheetId=el.dataset.sheet; ui.role='player'; ui.sheetMode=el.dataset.mode || 'play'; return renderSheet(); }
@@ -1692,16 +1739,15 @@
     if (form.id === 'join-form') {
       const code=String(fd.get('code')||'').trim().toUpperCase();
       const owner=String(fd.get('owner')||'').trim();
-      const character=String(fd.get('character')||'').trim();
       if (online.ready) {
         try {
           const { data, error } = await online.client.rpc('join_room_by_code', { _invite_code: code, _display_name: owner });
           if (error) throw error;
           const joined = Array.isArray(data) ? data[0] : data;
           if (!joined?.room_id) throw new Error('Mesa não encontrada.');
-          const characterId = await createOnlineCharacter(joined.room_id, owner, character, online.user.id);
           await hydrateOnlineState();
-          closeModal(); ui.role='player';ui.campaignId=joined.room_id;ui.sheetId=characterId;ui.sheetMode='edit';renderSheet();
+          closeModal(); ui.role='player';ui.campaignId=null;ui.sheetId=null;ui.sheetMode='play';renderPlayerLobby();
+          toast('Você entrou na mesa. Agora o mestre pode vincular sua ficha.');
         } catch (err) { toast(`Não consegui entrar: ${err?.message || err}`); }
         return;
       }
@@ -1709,23 +1755,51 @@
       reloadState();
       const c=Object.values(state.campaigns).find(x=>String(x.code||'').toUpperCase()===code);
       if(!c){toast('Mesa não encontrada.');return;}
-      const s=newSheet(owner,character,c.id);
+      const s=newSheet(owner,'Novo personagem',c.id);
       c.sheets[s.id]=s; saveState(); closeModal(); ui.role='player';ui.campaignId=c.id;ui.sheetId=s.id;ui.sheetMode='edit';renderSheet();return;
     }
     if (form.id === 'master-create-sheet-form') {
       const c=campaign(); if(!c) return;
-      const owner=String(fd.get('owner')||''); const character=String(fd.get('character')||'');
+      const character=String(fd.get('character')||'');
       if (online.ready) {
         try {
-          const characterId = await createOnlineCharacter(c.id, owner, character, online.user.id);
+          const characterId = await createOnlineCharacter(c.id, 'Aguardando jogador', character, null, true);
           await hydrateOnlineState();
           closeModal(); ui.role='master';ui.sheetId=characterId;ui.sheetMode='edit';renderSheet();
         } catch (err) { toast(`Não consegui criar a ficha: ${err?.message || err}`); }
         return;
       }
-      const s=newSheet(owner,character,c.id);
+      const owner='Aguardando jogador'; const s=newSheet(owner,character,c.id); s.ownerDeviceId=null;
       c.sheets[s.id]=s; saveState(); closeModal(); ui.role='master';ui.sheetId=s.id;ui.sheetMode='edit';renderSheet();return;
     }
+    if (form.id === 'master-import-sheet-form') {
+      const c=campaign(); if(!c || !online.ready) return;
+      try {
+        const text=String(fd.get('json')||'').trim();
+        if(!text) throw new Error('Escolha um JSON ou cole o conteúdo.');
+        const data=readImportedCharacter(JSON.parse(text));
+        const characterId=await createOnlineCharacter(c.id,'Aguardando jogador',String(data.name||'Novo personagem'),null,true);
+        await hydrateOnlineState();
+        ui.role='master'; ui.campaignId=c.id; ui.sheetId=characterId; ui.sheetMode='edit';
+        applyImportedCharacter(data,{importOwner:false});
+        const imported=sheet(); imported.ownerDeviceId=null; imported.ownerName='Aguardando jogador'; saveState();
+        await persistSheetOnline(imported,c.id);
+        await hydrateOnlineState();
+        closeModal(); toast(`${data.name || 'Ficha'} importada e aguardando jogador.`); renderMasterDashboard();
+      } catch(err) { toast(`Não consegui importar: ${err?.message || err}`); }
+      return;
+    }
+    if (form.id === 'bind-player-form') {
+      const c=campaign(); const s=c?.sheets?.[form.dataset.sheet]; const userId=String(fd.get('userId')||'');
+      if(!c||!s||!userId||!online.ready) return;
+      try {
+        const {error}=await online.client.from('characters').update({owner_id:userId}).eq('id',s.id);
+        if(error) throw error;
+        await hydrateOnlineState(); closeModal(); toast(`${s.name} vinculada ao jogador.`); renderMasterDashboard();
+      } catch(err) { toast(`Não consegui vincular: ${err?.message || err}`); }
+      return;
+    }
+
     if (form.id === 'create-table-form') {
       const name=String(fd.get('name')||'').trim(); const master=String(fd.get('master')||'').trim();
       if (online.ready) {
@@ -1781,12 +1855,12 @@
 
   document.addEventListener('change', e => {
     const target=e.target;
-    if (target?.id !== 'json-file-input') return;
+    if (!['json-file-input','master-json-file-input'].includes(target?.id)) return;
     const file=target.files?.[0];
     if(!file) return;
     if(file.size > 2 * 1024 * 1024){toast('Esse JSON é grande demais. Limite: 2 MB.');target.value='';return;}
     const reader=new FileReader();
-    reader.onload=()=>{const area=document.querySelector('#json-import-text');if(area)area.value=String(reader.result||'');};
+    reader.onload=()=>{const area=document.querySelector(target.id==='master-json-file-input'?'#master-json-import-text':'#json-import-text');if(area)area.value=String(reader.result||'');};
     reader.onerror=()=>toast('Não consegui ler esse arquivo.');
     reader.readAsText(file,'utf-8');
   });
