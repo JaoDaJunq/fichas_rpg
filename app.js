@@ -30,7 +30,7 @@
   }
 
   function onlineStatusLabel() {
-    if (online.ready) return '● Online · Supabase · v10';
+    if (online.ready) return '● Online · Supabase · v10.1';
     if (online.enabled && online.error) return `● Supabase indisponível: ${online.error}`;
     if (online.enabled) return '● Conectando ao Supabase…';
     return '● Modo local';
@@ -398,7 +398,10 @@
   function renderCurrentViewAfterSync() {
     reloadState();
     if (ui.role === 'master') {
-      if (ui.campaignId && state.campaigns[ui.campaignId]) return renderMasterDashboard();
+      if (ui.campaignId && state.campaigns[ui.campaignId]) {
+        if (ui.sheetId && state.campaigns[ui.campaignId]?.sheets?.[ui.sheetId]) return renderSheet();
+        return renderMasterDashboard();
+      }
       return renderMasterLobby();
     }
     if (ui.role === 'player') {
