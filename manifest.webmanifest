@@ -1,7 +1,7 @@
 {
-  "name": "RPG das Oito Marcas",
-  "short_name": "Oito Marcas",
-  "description": "Criador local de personagens do RPG das Oito Marcas.",
+  "name": "Fichas de RPG",
+  "short_name": "Fichas RPG",
+  "description": "Criador e catálogo local de fichas para vários sistemas de RPG.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
