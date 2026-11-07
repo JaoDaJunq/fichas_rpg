@@ -1,5 +1,5 @@
-const CACHE = 'fichas-daemon-v11';
-const CORE = ['./','./index.html','./styles.css?v=11.0','./app.js?v=11.0','./supabase-config.js?v=11.0','./manifest.webmanifest?v=11','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE = 'oito-marcas-v1';
+const CORE = ['./','./index.html','./oito-marcas.css?v=1.0','./oito-marcas.js?v=1.0','./manifest.webmanifest?v=11','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).catch(()=>{}));
   self.skipWaiting();
@@ -16,7 +16,7 @@ self.addEventListener('fetch', event => {
     event.respondWith(fetch(req).then(res=>{const copy=res.clone();caches.open(CACHE).then(c=>c.put('./index.html',copy));return res;}).catch(()=>caches.match('./index.html')));
     return;
   }
-  if (/\/(app\.js|styles\.css|supabase-config\.js)$/.test(url.pathname)) {
+  if (/\/(oito-marcas\.js|oito-marcas\.css)$/.test(url.pathname)) {
     event.respondWith(fetch(req).then(res=>{const copy=res.clone();caches.open(CACHE).then(c=>c.put(req,copy));return res;}).catch(()=>caches.match(req)));
     return;
   }
