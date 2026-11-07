@@ -1,5 +1,5 @@
-const CACHE = 'fichas-rpg-v1';
-const CORE = ['./','./index.html','./fichas-rpg.css?v=1.0','./fichas-rpg.js?v=1.0','./manifest.webmanifest?v=13','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE = 'fichas-rpg-v2';
+const CORE = ['./','./index.html','./fichas-rpg.css?v=1.1','./fichas-rpg.js?v=1.1','./manifest.webmanifest?v=14','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).catch(()=>{}));
   self.skipWaiting();
