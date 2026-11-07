@@ -1,5 +1,5 @@
 const CACHE = 'oito-marcas-v1';
-const CORE = ['./','./index.html','./oito-marcas.css?v=1.0','./oito-marcas.js?v=1.0','./manifest.webmanifest?v=11','./icons/icon-192.png','./icons/icon-512.png'];
+const CORE = ['./','./index.html','./oito-marcas.css?v=1.0','./oito-marcas.js?v=1.0','./manifest.webmanifest?v=12','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).catch(()=>{}));
   self.skipWaiting();
