@@ -1,7 +1,7 @@
 {
-  "name": "Fichas Daemon",
-  "short_name": "Daemon",
-  "description": "Mesa digital para fichas do Sistema Daemon.",
+  "name": "RPG das Oito Marcas",
+  "short_name": "Oito Marcas",
+  "description": "Criador local de personagens do RPG das Oito Marcas.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
