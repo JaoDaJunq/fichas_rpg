@@ -1,29 +1,31 @@
-# RPG das Oito Marcas — fichas presenciais
+# Fichas de RPG
 
-Este GitHub Pages funciona como catálogo e criador local de personagens para as sessões presenciais do RPG das Oito Marcas. Não precisa entrar em mesa, usar código, criar conta ou conectar ao Supabase.
+Catálogo local de personagens para diferentes sistemas de RPG, com criação guiada inspirada no fluxo de agentes do C.R.I.S. As fichas são para organizar e usar em sessões presenciais.
 
-## O que está disponível
+## Recursos
 
-- Catálogo local de personagens, inspirado no fluxo de agentes do C.R.I.S.
-- Criação guiada em etapas: identidade, origem, vocação, atributos/perícias e revisão.
-- Ficha individual com visualização, edição, impressão pelo navegador e exportação JSON.
-- Salvamento no armazenamento local do navegador em que a ficha foi criada.
-- Atributos: Agilidade, Força, Intelecto, Presença e Vigor. O valor mostra quantos d20 são associados ao atributo.
-- Perícias iniciais adaptadas para o cenário.
+- Catálogo de personagens com filtro por sistema.
+- Modelos para **Ficha livre** e **RPG das Oito Marcas**.
+- Cadastro de sistemas próprios com atributos e perícias reutilizáveis.
+- Criador em etapas com campos gerais para identidade, conceito, nível, atributos, perícias, poderes, equipamento e anotações.
+- Ficha individual para consultar, editar, excluir, imprimir pelo navegador ou exportar em JSON.
+- Salvamento no navegador. Não exige conta, mesa online ou conexão ao Supabase.
+- Migração local automática de fichas já criadas no primeiro criador das Oito Marcas.
 
-## Regras ainda em construção
+## Como usar
 
-O total de pontos para distribuir, os limites definitivos, classes e poderes ainda não foram fechados. Por isso, a ficha deixa atributos editáveis entre 1 e 5, permite registrar perícias dominadas e aceita vocação/poderes em texto livre. Esses campos servem para organizar os personagens enquanto o sistema é finalizado.
+1. Abra **Gerenciar sistemas** e cadastre cada RPG que quiser organizar, ou escolha um dos modelos incluídos.
+2. Clique em **Criar personagem**, selecione o sistema e preencha as etapas.
+3. Abra a ficha pronta para consultar ou editar durante a preparação da sessão.
 
-A marca da lótus pode ser registrada na ficção, mas a ficha não define se é verdadeira. A identidade do infiltrado fica para o mestre.
+Cada sistema aceita seus próprios nomes de atributos, valores e perícias. A ficha não impõe rolagens, limites ou fórmulas universais; esses detalhes ficam conforme as regras do RPG selecionado.
 
-## Arquivos ativos do Pages
+## Arquivos carregados pelo GitHub Pages
 
 - `index.html`
-- `oito-marcas.css`
-- `oito-marcas.js`
+- `fichas-rpg.css`
+- `fichas-rpg.js`
 - `sw.js`
 - `manifest.webmanifest`
-- `icons/` (ícones atuais do projeto)
 
-Os arquivos antigos de fichas Daemon e Supabase permanecem no histórico/raiz do repositório, mas não são carregados pela página principal.
+Os scripts antigos da ficha Daemon e do protótipo Oito Marcas não são carregados pela página principal.
