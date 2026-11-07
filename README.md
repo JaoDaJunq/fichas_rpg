@@ -7,7 +7,7 @@ Catálogo local de personagens para diferentes sistemas de RPG, com criação gu
 - Catálogo de personagens com filtro por sistema.
 - Modelos para **Ficha livre** e **Versão padrão**.
 - A Versão padrão traz os atributos Agilidade, Força, Intelecto, Presença e Vigor, uma lista de perícias e quatro arquétipos básicos: Combatente, Especialista, Místico e Explorador.
-- Cada arquétipo da Versão padrão dá **+1** em quatro perícias específicas. O bônus aparece na criação e na ficha salva.
+- Cada arquétipo da Versão padrão dá **+5** em quatro perícias específicas. O bônus aparece na criação e na ficha salva.
 - Cadastro de sistemas próprios com atributos, perícias, arquétipos e bônus configuráveis.
 - Criador em etapas com campos gerais para identidade, conceito, nível, atributos, perícias, poderes, equipamento e anotações.
 - Ficha individual para consultar, editar, excluir, imprimir pelo navegador ou exportar em JSON.
